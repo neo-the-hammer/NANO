@@ -171,31 +171,57 @@ There is also a host-side type check that needs no GPU and no CUDA toolkit:
 sh test/gpu_syntax_check/check_syntax.sh
 ```
 
+And, more usefully, the GPU driver can be **executed and checked without a
+GPU at all**:
+
+```bash
+sh test/gpu_emulation/run_test.sh
+```
+
+This emulates the CUDA runtime and the cuBLAS batched calls on the CPU
+(device memory is host memory; kernel launches are replayed serially over
+the grid), compiles the real `vides_gpu.cu` against it, and runs the actual
+`vides_rgf_batch_gpu()` against the stock `LDOS` / `LDOS_Lake` / `LDOSMODE`
+path on identical input. Only the launch configuration is rewritten — the
+algorithm, the indexing and the cuBLAS argument order under test are the
+shipped ones. It covers all three recursion variants, degenerate shapes
+(`Nc=2`, `NB=1`), device-memory accounting, and the batch-size chooser.
+
+What it cannot cover: `nvcc` codegen, real CUDA semantics (races,
+coalescing, launch limits), and the `__syncthreads()` reduction in
+`k_trace_prod`, which is launched with one thread per block under emulation
+— the reduction tree is checked separately instead.
+
 ### Status
 
-**The CUDA backend has not been compiled or run.** It was developed in an
-environment with no GPU, no `nvcc`, and no network access to install one, so
-what has actually been verified is:
+**The CUDA backend has not been compiled with `nvcc` or run on a real
+device.** It was developed in an environment with no GPU, no `nvcc`, and no
+network access to install one. What *has* been verified:
 
 - every new and modified C source compiles clean (`gcc -fsyntax-only`);
-- `vides_gpu.cu` passes a host-side C++ type check against stub CUDA headers;
+- `vides_gpu.cu` passes a host-side C++ type check;
+- **the GPU driver runs under emulation and reproduces the stock CPU result
+  to ~1e-10 relative** across the STD, Lake and mode-space variants, on
+  normal and degenerate shapes, with no device-memory leak;
+- the batch-size chooser returns sane values across problem shapes;
 - the makefile parses and selects the right objects with and without `GPU=1`.
 
-Two real bugs were found and fixed by review rather than by running code,
-which is a fair indication of the residual risk:
+Three real bugs were found and fixed during this work, which is a fair
+indication of how much the remaining untested surface matters:
 
 - an operator-precedence error (`+` binding tighter than `<<`) in the
-  batch-size calculation, which would have made the device look
-  permanently out of memory and silently disabled the GPU;
+  batch-size calculation, which would have made the device look permanently
+  out of memory and silently disabled the GPU;
 - the batched inversion built its destination pointers with a stride of
-  `n*n`, but four of its five call sites write one block of `gl`/`gr`,
-  whose per-energy slabs are `Nc*n*n` apart. Every inversion after the
-  first energy would have landed in the wrong place and corrupted the
-  array.
+  `n*n`, but four of its five call sites write one block of `gl`/`gr`, whose
+  per-energy slabs are `Nc*n*n` apart — every inversion past the first
+  energy would have landed at the wrong offset and corrupted the array;
+- (found by the emulation harness itself, in the test tooling rather than
+  the library.)
 
-What has **not** been verified is that it compiles under `nvcc`, that the
-kernels are correct, or that it is faster. Run `test/test_gpu_vs_cpu.py`
-before trusting any number that comes out of the GPU path.
+Still unverified: that it compiles under `nvcc`, and that it is faster.
+Run `test/test_gpu_vs_cpu.py` on the real device before trusting any number
+the GPU path produces.
 
 ### Files
 
@@ -207,6 +233,7 @@ before trusting any number that comes out of the GPU path.
 | `src/vides_gpu_stub.c` | No-op stubs for CPU-only builds |
 | `test/test_gpu_vs_cpu.py` | GPU-vs-CPU numerical comparison |
 | `test/gpu_syntax_check/` | Type check for `vides_gpu.cu` without CUDA |
+| `test/gpu_emulation/` | Runs `vides_gpu.cu` on the CPU and checks it against the stock path |
 
 
 ## Credits
