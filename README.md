@@ -206,8 +206,9 @@ network access to install one. What *has* been verified:
 - the batch-size chooser returns sane values across problem shapes;
 - the makefile parses and selects the right objects with and without `GPU=1`.
 
-Three real bugs were found and fixed during this work, which is a fair
-indication of how much the remaining untested surface matters:
+Two real bugs were found and fixed in the backend during this work, both
+by review rather than by running code, which is a fair indication of how
+much the remaining untested surface matters:
 
 - an operator-precedence error (`+` binding tighter than `<<`) in the
   batch-size calculation, which would have made the device look permanently
@@ -215,9 +216,10 @@ indication of how much the remaining untested surface matters:
 - the batched inversion built its destination pointers with a stride of
   `n*n`, but four of its five call sites write one block of `gl`/`gr`, whose
   per-energy slabs are `Nc*n*n` apart — every inversion past the first
-  energy would have landed at the wrong offset and corrupted the array;
-- (found by the emulation harness itself, in the test tooling rather than
-  the library.)
+  energy would have landed at the wrong offset and corrupted the array.
+
+The emulation harness above was written afterwards and found no further
+disagreement, which is why the numbers now agree to round-off.
 
 Still unverified: that it compiles under `nvcc`, and that it is faster.
 Run `test/test_gpu_vs_cpu.py` on the real device before trusting any number
