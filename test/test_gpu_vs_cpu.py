@@ -67,14 +67,18 @@ def case_gnr():
     return d.charge, d.E, d.T
 
 
-def _hamiltonian(biased):
+def _hamiltonian(biased, offgrid=False):
     from NanoTCAD_ViDES import Hamiltonian
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "demo"))
     from GNR import GNR
     h = GNR(5, 6)
     d = Hamiltonian(5, 6)
     d.H = h
-    d.Elower, d.Eupper, d.dE = -3.0, 3.0, 0.02
+    if offgrid:
+        # Shift the grid by half a step so no energy lands on E ~ 0.
+        d.Elower, d.Eupper, d.dE = -2.99, 2.99, 0.02
+    else:
+        d.Elower, d.Eupper, d.dE = -3.0, 3.0, 0.02
     d.eta = 1e-5
     if biased:
         d.Phi = -0.2 * np.ones(d.n * d.Nc)
@@ -104,17 +108,27 @@ def case_hamiltonian_eq():
     return _hamiltonian(False)
 
 
+def case_hamiltonian_offgrid():
+    """'hamiltonian' with the energy grid shifted by half a step, so no
+    point falls at E ~ 0 (where LDOS_Lake nudges E by 1e-4 and the zigzag
+    edge states make the inversion nearly singular).  Diagnostic: if this
+    agrees and 'hamiltonian' does not, the disagreement is confined to that
+    one ill-conditioned point."""
+    return _hamiltonian(True, offgrid=True)
+
+
 CASES = {
     "cnt": case_cnt,
     "cntmode": case_cntmode,
     "gnr": case_gnr,
     "hamiltonian": case_hamiltonian,
     "hamiltonian_eq": case_hamiltonian_eq,
+    "hamiltonian_offgrid": case_hamiltonian_offgrid,
 }
 
 # Cases whose charge is cancellation noise by construction; reported but
 # not counted as failures.
-DIAGNOSTIC_ONLY = {"hamiltonian_eq"}
+DIAGNOSTIC_ONLY = {"hamiltonian_eq", "hamiltonian_offgrid"}
 
 
 # ----------------------------------------------------------------------
@@ -224,6 +238,11 @@ def main():
                   "  worst element rel = %-10.3g  %s"
                   % (key, adiff, rdiff, erel, status))
 
+        dT = np.abs(cpu["T"] - gpu["T"])
+        if dT.size:
+            k = int(dT.argmax())
+            print("  worst T point: E = %+.6f eV  (T_cpu = %.6g, T_gpu = %.6g)"
+                  % (cpu["E"][k], cpu["T"][k], gpu["T"][k]))
         if worst > args.rtol:
             if name in DIAGNOSTIC_ONLY:
                 print("  (diagnostic case: not counted as a failure)")
