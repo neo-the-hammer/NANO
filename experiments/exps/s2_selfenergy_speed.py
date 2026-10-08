@@ -8,7 +8,7 @@ Swept over lead width n at fixed batch, and over batch size NB at fixed n.
 Times are per energy so the methods can be read off one axis.
 """
 
-from common import u_decim, u_selfh, Step, run_native, fmt_t, CPU_C, GPU_C, MUTED
+from common import with_gpu, u_decim, u_selfh, Step, run_native, fmt_t, CPU_C, GPU_C, MUTED
 
 ID = "S2"
 TITLE = "Self-energy speed: eigen vs decimation, CPU vs GPU"
@@ -28,7 +28,7 @@ def steps(ctx):
     for n in ns:
         a = ["decim", "hsrc", n, NB, 1e-5, 2]
         out.append(Step("decimation CPU+GPU n=%d NB=%d" % (n, NB), "decim",
-                        u_decim(n, NB) * (1 + (3 * 0.5 if g else 0)),
+                        with_gpu(u_decim(n, NB), 3, g),
                         (lambda a=a: dict(run_native(ctx["exe"], a), axis="n")), g))
         a = ["selfh", "src", n, NE, 1e-5, "random"]
         out.append(Step("eigen vs decimation CPU n=%d" % n, "selfh", u_selfh(n, NE),
@@ -36,7 +36,7 @@ def steps(ctx):
     for NBv in NBs:
         a = ["decim", "hsrc", nfix, NBv, 1e-5, 2]
         out.append(Step("decimation CPU+GPU n=%d NB=%d" % (nfix, NBv), "decim",
-                        u_decim(nfix, NBv) * (1 + (3 * 0.5 if g else 0)),
+                        with_gpu(u_decim(nfix, NBv), 3, g),
                         (lambda a=a: dict(run_native(ctx["exe"], a), axis="NB")), g))
     return out
 

@@ -350,7 +350,7 @@ static PyObject* py_H_charge_T(PyObject* self, PyObject* args)
 
     // Contact self-energy method (see vides_selfh_use_decimation()).
     // The leads' decimation cells are energy independent: build them once.
-    use_dec=vides_selfh_use_decimation();
+    use_dec=vides_selfh_use_decimation(eta);
     if (!rank) printf("Contact self-energy: %s \n",
                       use_dec ? "decimation (selfH_dec)" : "eigen-decomposition (selfH_new)");
     if (use_dec)

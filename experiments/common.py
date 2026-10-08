@@ -191,17 +191,17 @@ class CostModel:
     step (running geometric mean of the measured seconds-per-unit), so the
     estimates and the ETA track the machine actually in use."""
 
-    OVERHEAD = {"native": 0.05, "native_gpu": 0.8,
-                "device": 1.5, "device_gpu": 3.0}
-
     def __init__(self):
+        # Fixed per-process costs; calibrate() replaces the device ones
+        # with the measured start-up of a trivial device run.
+        self.overhead = {"native": 0.05, "native_gpu": 0.8,
+                         "device": 1.5, "device_gpu": 3.0}
         self.scale = {"_default": 2e-9}
         self.n = {}
 
-    @staticmethod
-    def _oh(cls, gpu):
-        return CostModel.OVERHEAD["%s%s" % ("device" if cls.startswith("dev") else "native",
-                                             "_gpu" if gpu else "")]
+    def _oh(self, cls, gpu):
+        return self.overhead["%s%s" % ("device" if cls.startswith("dev") else "native",
+                                       "_gpu" if gpu else "")]
 
     def _scale(self, cls):
         # most specific first: dev_gnr_gpu -> dev_gpu -> dev -> _default
@@ -424,16 +424,27 @@ def which(x):
 # share a scale stay comparable before they are refined)
 # ======================================================================
 
+# Work done on the GPU, in the same units, relative to the CPU.  Only a
+# starting guess (refined per class as steps finish): on a T4 the batched
+# solver and decimation run ~20-50x faster than the CPU reference.
+GPU_REL = 0.05
+
+
+def with_gpu(units, runs, gpu):
+    """units of one CPU run plus `runs` GPU runs of the same problem."""
+    return units * (1 + (runs * GPU_REL if gpu else 0))
+
+
 def u_rgf(n, Nc, NB):
     return 10.0 * NB * Nc * n ** 3
 
 
 def u_decim(n, NB):
-    return 150.0 * NB * (4 * n) ** 3
+    return 55.0 * NB * (4 * n) ** 3
 
 
 def u_selfh(n, NE):
-    return 160.0 * NE * (4 * n) ** 3
+    return 60.0 * NE * (4 * n) ** 3
 
 
 def device_dims(spec):
@@ -453,10 +464,10 @@ def u_device(spec, gpu=False, selfh=None, repeat=1):
     n, Nc, NE = device_dims(spec)
     kind = spec["kind"]
     if kind == "gnr":
-        sig = 2 * 150.0 * (4 * n) ** 3
+        sig = 2 * 55.0 * (4 * n) ** 3
     elif kind == "hamiltonian":
         dec = selfh == "dec" or (selfh is None and gpu)
-        sig = 2 * (150.0 * (4 * n) ** 3 if dec else 300.0 * (2 * n) ** 3)
+        sig = 2 * (55.0 * (4 * n) ** 3 if dec else 300.0 * (2 * n) ** 3)
     else:
         sig = 50.0 * n ** 3
     return repeat * NE * (10.0 * Nc * n ** 3 + sig)

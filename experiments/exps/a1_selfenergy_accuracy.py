@@ -9,12 +9,13 @@ which any exact self-energy satisfies.  Swept over eta for a graphene
 ribbon lead and a random four-slice lead; the GPU's decimation is scored
 the same way on the same energies.
 
-Expected: eigen ~1e-12 everywhere; decimation degrades as eta -> 0 (its
-convergence slows); GPU decimation tracks CPU decimation.  Pass: GPU
+Expected: eigen ~1e-12 everywhere; decimation ~1e-12..1e-9 at moderate
+eta, worse (up to ~1e-6 at band edges) as eta -> 0; GPU decimation tracks
+CPU decimation.  Pass: GPU
 decimation residual <= 10x CPU decimation residual (+1e-9) at every eta.
 """
 
-from common import u_decim, u_selfh, Step, run_native, fmt_e, positive, CPU_C, GPU_C, ALT_C, MUTED
+from common import with_gpu, u_decim, u_selfh, Step, run_native, fmt_e, positive, CPU_C, GPU_C, ALT_C, MUTED
 
 ID = "A1"
 TITLE = "Self-energy accuracy vs eta: eigen vs decimation"
@@ -36,7 +37,7 @@ def steps(ctx):
         # same random lead, same energies, through the batched GPU decimation
         a = ["decim", "hsrc", n, NE, eta, 1]
         out.append(Step("dec CPU vs GPU random eta=%g" % eta, "decim",
-                        u_decim(n, NE) * (1 + (2 * 0.5 if ctx["gpu"] else 0)),
+                        with_gpu(u_decim(n, NE), 2, ctx["gpu"]),
                         (lambda a=a: run_native(ctx["exe"], a)), ctx["gpu"]))
     return out
 

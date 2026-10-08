@@ -121,11 +121,20 @@ batch of energies at once (`vides_decimation_batch_gpu`):
 batched CUDA 11 equivalent, so the Hamiltonian path gained a decimation
 alternative, `selfH_dec`, built on the same lead cell. Both are exact in
 principle; scored by the residual of the lead's own fixed-point equation,
-the eigen method is more accurate at very small `eta` (~1e-12 vs ~1e-9 at
-`eta = 1e-5`) and cheaper per energy on a CPU, while decimation batches.
-So by default a GPU build uses decimation and a CPU run keeps the eigen
-method; `VIDES_SELFH` overrides either (experiments A1 and A2 measure
-exactly this trade-off).
+the eigen method stays at ~1e-12 for any `eta`, while decimation reaches
+~1e-12–1e-9 at moderate `eta` but only ~1e-6 at band edges as `eta`
+approaches 1e-8. The eigen method is also cheaper per energy on a CPU;
+decimation batches. So by default a GPU build uses decimation when
+`eta >= 1e-6` and the eigen method below that (`Hamiltonian`'s default
+`eta` is 1e-8), and a CPU run always keeps the eigen method; `VIDES_SELFH`
+overrides either. Experiments A1 and A2 measure exactly this trade-off.
+
+All decimation in the code (`Gzerozero`, used by `selfGNR`, `selfH_dec`
+and `selfH_W`, and the GPU batch) uses the Sancho-Rubio form. The
+original transfer-matrix (Lopez-Sancho) form could let one of its two
+transfer matrices overflow while the other underflowed, which gave
+inaccurate or non-finite self-energies for some leads and energies (wide
+graphene ribbons in particular) and stopped the GPU from converging.
 
 ### Building
 
@@ -168,7 +177,7 @@ of energy points; for a very small device the CPU may still win.
 |---|---|
 | `VIDES_GPU=0` | Force the CPU path even on a GPU build |
 | `VIDES_GPU_BATCH=N` | Cap the number of energies per batch |
-| `VIDES_SELFH=eig` / `dec` | Hamiltonian path: eigen-method or decimation contact self-energy (default: `dec` on the GPU, `eig` on the CPU) |
+| `VIDES_SELFH=eig` / `dec` | Hamiltonian path: eigen-method or decimation contact self-energy (default: `dec` on the GPU when `eta >= 1e-6`, otherwise `eig`) |
 | `VIDES_PROFILE=1` | Print a per-call split: self-energy time, NEGF solve time, the rest |
 
 Each NEGF call prints which backend it selected and the batch size. If the

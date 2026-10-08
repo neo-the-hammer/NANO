@@ -10,7 +10,7 @@ Compared: source LDOS A1, drain LDOS A2 and transmission T, as max|diff|
 relative to the array's peak.  Pass: < 1e-8 (round-off is ~1e-13).
 """
 
-from common import u_rgf, Step, run_native, fmt_e, positive, CPU_C, GPU_C, ALT_C, MUTED
+from common import with_gpu, u_rgf, Step, run_native, fmt_e, positive, CPU_C, GPU_C, ALT_C, MUTED
 
 ID = "C1"
 TITLE = "NEGF solver (RGF): CPU vs GPU, all variants"
@@ -32,7 +32,7 @@ def steps(ctx):
     out = []
     for var, n, Nc, NB, eta in cases(ctx["quick"]):
         args = ["rgf", var, n, Nc, NB, eta, 1]
-        units = u_rgf(n, Nc, NB) * (1 + (2 * 0.5 if ctx["gpu"] else 0))
+        units = with_gpu(u_rgf(n, Nc, NB), 2, ctx["gpu"])
         out.append(Step("%s n=%d Nc=%d NB=%d eta=%g" % (var, n, Nc, NB, eta), "rgf", units,
                         (lambda a=args: run_native(ctx["exe"], a)), ctx["gpu"]))
     return out

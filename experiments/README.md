@@ -55,11 +55,13 @@ over the whole array (relative to the peak). Element-wise relative
 differences are shown too, but are dominated by values that are tiny to
 begin with (transmission inside a gap), so they do not decide verdicts.
 
-**Why decimation is judged by residuals.** Decimation stops when its
-coupling matrices underflow to exactly zero, which the CPU and the GPU can
-reach one iteration apart. The two then agree only to the accuracy of the
-method itself, so C2 checks that both results solve the lead equation
-equally well, not that they agree bit for bit.
+**Why decimation is judged by residuals.** Decimation is iterative and
+the GPU iterates until every energy of its batch has converged, so an
+energy can get a few more (negligible) iterations on the GPU than on the
+CPU. Near band edges at small eta the result is only as accurate as the
+problem's conditioning allows, so the two agree to that accuracy rather
+than to round-off. C2 therefore also checks that both results solve the
+lead equation equally well.
 
 ## Options
 

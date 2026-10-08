@@ -152,10 +152,10 @@ int vides_negf_chunk(const vides_rgf_desc *desc);
  *              which the caller frees with cfree_cmatrix()
  *
  * The CPU path calls Gzerozero() itself, so its results are identical to
- * the per-energy code it replaces.  The GPU path runs the same recursion
- * batched over energies, with the same stopping rule: iterate until the
- * t_i, t~_i matrices of every energy are exactly zero (see Gzerozero.c --
- * its norm test is only ever 1 or NaN).  Returns 0 on success.
+ * the per-energy code it replaces.  The GPU path runs the same
+ * Sancho-Rubio recursion batched over energies, with the same stopping
+ * rule (VIDES_DECIM_TOL / VIDES_DECIM_MAXIT in Gzerozero.h), iterating
+ * until every energy of the batch has converged.  Returns 0 on success.
  */
 int vides_decimation_batch(int M, int NB, const double *E, double eta,
                            vides_complex **W0, vides_complex **BETA,
@@ -172,11 +172,12 @@ int vides_decimation_batch_gpu(int M, int NB, const double *E, double eta,
 
 /* Which self-energy H_charge_T uses: 1 = decimation (selfH_dec, batched,
  * GPU-capable), 0 = the original eigen method (selfH_new).  Set by
- * VIDES_SELFH=dec|eig; by default decimation when a GPU is in use and the
- * eigen method otherwise.  The eigen method is the more accurate of the
- * two at small eta (see test/gpu_emulation/selfenergy_check.c), and on a
- * CPU also the faster. */
-int vides_selfh_use_decimation(void);
+ * VIDES_SELFH=dec|eig; by default decimation when a GPU is in use and
+ * eta >= VIDES_SELFH_DEC_MIN_ETA, the eigen method otherwise.  The eigen
+ * method is the more accurate of the two at small eta (see
+ * test/gpu_emulation/selfenergy_check.c), and on a CPU also the faster. */
+#define VIDES_SELFH_DEC_MIN_ETA 1e-6
+int vides_selfh_use_decimation(double eta);
 
 /* ---------------------------------------------------------------- */
 /* Profiling (opt-in: VIDES_PROFILE=1)                               */

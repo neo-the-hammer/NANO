@@ -8,7 +8,7 @@ GPU time is steady state (best of two calls after a warm-up call).  The
 numerical agreement of every timed run is checked too (as in C1).
 """
 
-from common import u_rgf, Step, run_native, fmt_e, fmt_t, CPU_C, GPU_C, MUTED
+from common import with_gpu, u_rgf, Step, run_native, fmt_e, fmt_t, CPU_C, GPU_C, MUTED
 
 ID = "S1"
 TITLE = "NEGF solver speed: scaling in n, Nc, NB"
@@ -31,7 +31,7 @@ def steps(ctx):
             p = {"n": n, "Nc": Nc, "NB": NB}
             p[axis] = v
             a = ["rgf", "std", p["n"], p["Nc"], p["NB"], 1e-5, 2]
-            units = u_rgf(p["n"], p["Nc"], p["NB"]) * (1 + (3 * 0.5 if ctx["gpu"] else 0))
+            units = with_gpu(u_rgf(p["n"], p["Nc"], p["NB"]), 3, ctx["gpu"])
 
             def fn(a=a, axis=axis):
                 r = run_native(ctx["exe"], a)

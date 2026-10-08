@@ -6,134 +6,104 @@
 //  redistribution of this file, and for a DISCLAIMER OF ALL WARRANTIES.
 // ====================================================================== 
 #include "Gzerozero.h"
+#include <math.h>
+#include <stdio.h>
 // In wmH you put the EI-H, where H is the Hamiltonian, and 
 // E is the energy. In BETA and BETADAGA you put the 
 // hopping terms, i.e. the up and downdiagonal elements of the
-// hamiltonian. OUTPUT : surface Green's function.
-complex **Gzerozero(complex **wmH,complex **BETA,complex **BETADAGA,int N)
-     //complex **Gzerozero(double E,complex **H,complex **BETA,complex **BETADAGA,int N);
+// hamiltonian. OUTPUT : BETA gs BETADAGA, with gs the surface Green's
+// function of the semi-infinite lead.
+//
+// gs is computed with the Sancho-Rubio decimation (J. Phys. F 15, 851
+// (1985)).  The original code used the transfer-matrix form of the same
+// method (J. Phys. F 14, 1205 (1984)), T = t0 + t~0 t1 + t~0 t~1 t2 + ...,
+// gs = (wmH - BETA T)^-1.  That form is exact in exact arithmetic, but one
+// of t_i, t~_i can grow while the other underflows: their product stays
+// finite, the factors overflow, and T picks up inf * 0 = NaN.  Graphene
+// ribbon leads hit this at ordinary energies.  In the Sancho-Rubio form
+// both couplings shrink together and the result only accumulates finite
+// corrections:
+//
+//   g    = A^-1
+//   As  <- As - a g b                 (surface cell, renormalised)
+//   A   <- A  - a g b - b g a         (bulk cell, renormalised)
+//   a   <- a g a,   b <- b g b        (couplings across 2^k cells)
+//
+// from A = As = wmH, a = BETA, b = BETADAGA, until a and b are negligible;
+// then gs = As^-1.  Stopping rule: every element of a and b below
+// VIDES_DECIM_TOL times the largest element of BETA (the remaining
+// correction is quadratic in that), or VIDES_DECIM_MAXIT iterations.
+// vides_gpu.cu runs the same recursion and the same stopping rule.
+
+static double cmaxabs(complex **X, int N)
 {
-  complex **ti,**titilde,**omega,**ID,**temp,**T,**ZERO,**temp1,**temp2,
-    **temp3,**temp4,**temp5,**tinew,**titildenew,**temp6,**titildecycle,
-    zero,**Gz;
-  int i,j,k,l,ix,counter;
-  double normati,eta,normatilde;
-  FILE *fp;
-  zero.r=0;
-  zero.i=0;
-  //  eta=1e-5;
-  eta=1e-25;
-  
-  T=cmatrix(0,N-1,0,N-1);
-
-  ID=cmatrix(0,N-1,0,N-1);
-  for (i=0;i<N;i++)
-    for (j=0;j<N;j++)
-      {
-	if (i==j)
-	  ID[i][j]=complass(1,0);
-	else
-	  ID[i][j]=zero;
-      }
-  
-  ZERO=cmatrix(0,N-1,0,N-1);
-  for (i=0;i<N;i++)
-    for (j=0;j<N;j++)
-      ZERO[i][j]=zero;
-  
-  // I compute t0
-  temp=cmatinv(wmH,N);
-  ti=cmatmul(temp,BETADAGA,N);
-  titilde=cmatmul(temp,BETA,N);
-  cfree_cmatrix(temp,0,N-1,0,N-1);
-  
-  // I compute T
-  for (i=0;i<N;i++)
-    for (j=0;j<N;j++)
-      T[i][j]=ti[i][j];
-  
-  titildecycle=cmatrix(0,N-1,0,N-1);
-  for (i=0;i<N;i++)
-    for (j=0;j<N;j++)
-      titildecycle[i][j]=titilde[i][j];
-
-/*    fp=fopen("prova","w"); */
-/*    for (i=0;i<N;i++) */
-/*      { */
-/*        for (j=0;j<N;j++) */
-/*  	printf("%lg ",titilde[i][j].r); */
-/*        printf("\n"); */
-/*      } */
-/*    close(fp); */
-
-/*    exit(1); */
-
-  normati=1;
-  normatilde=1;
-  counter=1;
-  while ((normati>=1e-10)||(normatilde>=1e-10))
-    {
-      temp=cmatmul(ti,titilde,N);
-      temp1=cmatmul(titilde,ti,N);
-      temp2=cmatsub(ID,temp,N);
-      temp3=cmatsub(temp2,temp1,N);
-      temp4=cmatinv(temp3,N);
-      temp5=cmatmul(ti,ti,N);
-      temp6=cmatmul(titilde,titilde,N);
-      tinew=cmatmul(temp4,temp5,N);
-      titildenew=cmatmul(temp4,temp6,N);
-      normati=cmatnorm2diff(ti,ZERO,N);
-      normatilde=cmatnorm2diff(titilde,ZERO,N);
-
-      cfree_cmatrix(temp,0,N-1,0,N-1);
-      cfree_cmatrix(temp1,0,N-1,0,N-1);
-      cfree_cmatrix(temp2,0,N-1,0,N-1);
-      cfree_cmatrix(temp3,0,N-1,0,N-1);
-      cfree_cmatrix(temp4,0,N-1,0,N-1);
-      cfree_cmatrix(temp5,0,N-1,0,N-1);
-      cfree_cmatrix(temp6,0,N-1,0,N-1);
-      
-      temp=cmatmul(titildecycle,tinew,N);
-      temp2=cmatsum(T,temp,N);
-      for (i=0;i<N;i++)
-	for (j=0;j<N;j++)
-	  T[i][j]=temp2[i][j];
-      
-      temp3=cmatmul(titildecycle,titildenew,N);
-      for (i=0;i<N;i++)
-	for (j=0;j<N;j++)
-	  titildecycle[i][j]=temp3[i][j];
-
-      for (i=0;i<N;i++)
-	for (j=0;j<N;j++)
-	  {
-	    ti[i][j]=tinew[i][j];
-	    titilde[i][j]=titildenew[i][j];
-	  }
-      cfree_cmatrix(tinew,0,N-1,0,N-1);
-      cfree_cmatrix(titildenew,0,N-1,0,N-1);
-      cfree_cmatrix(temp,0,N-1,0,N-1);
-      cfree_cmatrix(temp2,0,N-1,0,N-1);
-      cfree_cmatrix(temp3,0,N-1,0,N-1);
-      counter++;
+  double m = 0, v;
+  int i, j;
+  for (i = 0; i < N; i++)
+    for (j = 0; j < N; j++) {
+      v = fabs(X[i][j].r) + fabs(X[i][j].i);
+      if (!(v <= m)) m = v;          /* also propagates NaN */
     }
+  return m;
+}
 
-  //printf("Iterazioni %d \n",counter);
-  // I compute Gzerozero
+static void cmatcopy(complex **dst, complex **src, int N)
+{
+  int i, j;
+  for (i = 0; i < N; i++)
+    for (j = 0; j < N; j++)
+      dst[i][j] = src[i][j];
+}
 
-  temp1=cmatmul(BETA,T,N);
-  temp2=cmatsub(wmH,temp1,N);
-  temp3=cmatinv(temp2,N);
-  Gz=cmatmul3(BETA,temp3,BETADAGA,N);
-    
-  cfree_cmatrix(temp1,0,N-1,0,N-1);
-  cfree_cmatrix(temp2,0,N-1,0,N-1);
-  cfree_cmatrix(temp3,0,N-1,0,N-1);
-  cfree_cmatrix(T,0,N-1,0,N-1);
-  cfree_cmatrix(ID,0,N-1,0,N-1);
-  cfree_cmatrix(ZERO,0,N-1,0,N-1);
-  cfree_cmatrix(titildecycle,0,N-1,0,N-1);
-  cfree_cmatrix(ti,0,N-1,0,N-1);
-  cfree_cmatrix(titilde,0,N-1,0,N-1);
-  return Gz; 
+complex **Gzerozero(complex **wmH,complex **BETA,complex **BETADAGA,int N)
+{
+  complex **A, **As, **a, **b, **g, **ga, **gb, **P, **Q, **an, **bn, **gs, **Gz;
+  double thr;
+  int i, j, it;
+
+  A  = cmatrix(0, N-1, 0, N-1);
+  As = cmatrix(0, N-1, 0, N-1);
+  a  = cmatrix(0, N-1, 0, N-1);
+  b  = cmatrix(0, N-1, 0, N-1);
+  cmatcopy(A, wmH, N);
+  cmatcopy(As, wmH, N);
+  cmatcopy(a, BETA, N);
+  cmatcopy(b, BETADAGA, N);
+  thr = VIDES_DECIM_TOL * cmaxabs(BETA, N);
+
+  for (it = 0; it < VIDES_DECIM_MAXIT; it++) {
+    double ma = cmaxabs(a, N), mb = cmaxabs(b, N);
+    if (ma <= thr && mb <= thr) break;
+    if (!(ma < HUGE_VAL) || !(mb < HUGE_VAL)) break;   /* inf/NaN: give up */
+
+    g  = cmatinv(A, N);
+    gb = cmatmul(g, b, N);          /* g b */
+    ga = cmatmul(g, a, N);          /* g a */
+    P  = cmatmul(a, gb, N);         /* a g b */
+    Q  = cmatmul(b, ga, N);         /* b g a */
+    an = cmatmul(a, ga, N);         /* a g a */
+    bn = cmatmul(b, gb, N);         /* b g b */
+    for (i = 0; i < N; i++)
+      for (j = 0; j < N; j++) {
+        As[i][j].r -= P[i][j].r;  As[i][j].i -= P[i][j].i;
+        A[i][j].r  -= P[i][j].r + Q[i][j].r;
+        A[i][j].i  -= P[i][j].i + Q[i][j].i;
+      }
+    cmatcopy(a, an, N);
+    cmatcopy(b, bn, N);
+    cfree_cmatrix(g, 0, N-1, 0, N-1);  cfree_cmatrix(gb, 0, N-1, 0, N-1);
+    cfree_cmatrix(ga, 0, N-1, 0, N-1); cfree_cmatrix(P, 0, N-1, 0, N-1);
+    cfree_cmatrix(Q, 0, N-1, 0, N-1);  cfree_cmatrix(an, 0, N-1, 0, N-1);
+    cfree_cmatrix(bn, 0, N-1, 0, N-1);
+  }
+
+  gs = cmatinv(As, N);
+  Gz = cmatmul3(BETA, gs, BETADAGA, N);
+
+  cfree_cmatrix(A, 0, N-1, 0, N-1);
+  cfree_cmatrix(As, 0, N-1, 0, N-1);
+  cfree_cmatrix(a, 0, N-1, 0, N-1);
+  cfree_cmatrix(b, 0, N-1, 0, N-1);
+  cfree_cmatrix(gs, 0, N-1, 0, N-1);
+  return Gz;
 }

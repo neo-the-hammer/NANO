@@ -76,15 +76,23 @@ def calibrate(model, exe, gpu, want_devices, log):
     t0 = time.time()
     C.run_native(exe, ["rgf", "std", 8, 16, 48, 1e-5, 1])
     dt = time.time() - t0
-    units = C.u_rgf(8, 16, 48) * (1 + (2 * 0.5 if gpu else 0))
-    model.update("rgf", units, gpu, dt, also=("decim", "selfh", "_default"))
+    # The CPU reference dominates this run; the GPU part (and its start-up)
+    # is left to the per-class refinement.
+    model.update("rgf", C.u_rgf(8, 16, 48), False, dt, also=("decim", "selfh", "_default"))
+    # Device work is counted in the same units as the native processes;
+    # GPU classes start from the assumed GPU/CPU ratio.
+    model.scale["dev"] = model.scale["rgf"]
+    model.scale["dev_gpu"] = model.scale["rgf"] * C.GPU_REL
     if want_devices:
+        # A trivial device: its time is Python + module start-up, i.e. the
+        # fixed cost of every device process.
         spec = {"kind": "gnr", "size": [3, 1.0], "grid": [-1.0, 1.0, 0.05]}
         t0 = time.time()
         C.run_device(spec, False)
         dt = time.time() - t0
-        model.update("dev", C.u_device(spec), False, dt)
-        model.scale.setdefault("dev_gpu", model.scale["dev"] * 0.6)
+        model.overhead["device"] = dt
+        model.overhead["device_gpu"] = dt + 1.0     # + CUDA context
+
     log("  done in %s" % C.fmt_t(time.time() - t0 + dt).strip())
 
 

@@ -1,13 +1,14 @@
-"""C2 -- contact self-energy (Lopez-Sancho decimation), CPU vs GPU.
+"""C2 -- contact self-energy (Sancho-Rubio decimation), CPU vs GPU.
 
 vides_decimation_batch_cpu (the stock Gzerozero per energy) against the
 batched CUDA decimation, on the three lead cells the code builds: the GNR
 lead (selfGNR_cell) and the source and drain leads of the Hamiltonian
 path (selfH_dec_cell, random four-slice periodic chain).
 
-Decimation is iterative: both backends stop when the coupling matrices
-underflow to exactly zero, which can happen one iteration apart, so the
-two need not agree to round-off.  What matters is that both solve the
+Decimation is iterative, and the GPU iterates until every energy of the
+batch has converged, so an energy can see a few more iterations there;
+near band edges the result is only as accurate as the conditioning
+allows, so the two need not agree to round-off.  What matters is that both solve the
 lead's own fixed-point equation equally well, so each result's residual
 in that equation is computed too (a method-independent accuracy measure).
 
@@ -15,7 +16,7 @@ Pass: diff < 1e-8, or the GPU residual is no worse than 10x the CPU's and
 the diff is within 10x the residual (both are equally good solutions).
 """
 
-from common import u_decim, Step, run_native, fmt_e, positive, CPU_C, GPU_C, ALT_C, MUTED
+from common import with_gpu, u_decim, Step, run_native, fmt_e, positive, CPU_C, GPU_C, ALT_C, MUTED
 
 ID = "C2"
 TITLE = "Contact self-energy (decimation): CPU vs GPU"
@@ -33,7 +34,7 @@ def steps(ctx):
     out = []
     for cell, n, NB in cases(ctx["quick"]):
         args = ["decim", cell, n, NB, 1e-5, 1]
-        units = u_decim(n, NB) * (1 + (2 * 0.5 if ctx["gpu"] else 0))
+        units = with_gpu(u_decim(n, NB), 2, ctx["gpu"])
         out.append(Step("%s n=%d NB=%d" % (cell, n, NB), "decim", units,
                         (lambda a=args: run_native(ctx["exe"], a)), ctx["gpu"]))
     return out

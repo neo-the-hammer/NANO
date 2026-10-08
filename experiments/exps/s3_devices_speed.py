@@ -18,11 +18,11 @@ KIND = "speed"
 
 def devices(quick):
     if quick:
-        g = [-1.505, 1.505, 0.01]
+        g = [-1.5025, 1.5025, 0.01]
         return [("cnt", {"kind": "cnt", "size": [13, 5.0], "grid": g}),
                 ("gnr", {"kind": "gnr", "size": [8, 5.0], "grid": g}),
                 ("hamiltonian", {"kind": "hamiltonian", "size": [8, 24], "grid": g})]
-    g = [-1.505, 1.505, 0.005]
+    g = [-1.5025, 1.5025, 0.005]
     return [("cnt", {"kind": "cnt", "size": [10, 5.0], "grid": g}),
             ("cnt", {"kind": "cnt", "size": [19, 10.0], "grid": g}),
             ("cntmode", {"kind": "cntmode", "size": [19, 10.0], "grid": g, "nmodes": 6}),

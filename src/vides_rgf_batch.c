@@ -216,10 +216,16 @@ int vides_decimation_batch(int M, int NB, const double *E, double eta,
                                     off, nout, out);
 }
 
-int vides_selfh_use_decimation(void)
+int vides_selfh_use_decimation(double eta)
 {
   const char *env = getenv("VIDES_SELFH");
   if (env && (env[0] == 'e' || env[0] == 'E')) return 0;
   if (env && (env[0] == 'd' || env[0] == 'D')) return 1;
+  /* Below this broadening the eigen method is much the more accurate of
+     the two (residual ~1e-12 against up to ~1e-6 for decimation at
+     eta = 1e-8, at band edges), and it costs about as much per energy as
+     one batched GPU decimation, so it stays the default there even on a
+     GPU; the NEGF solve itself still runs on the GPU. */
+  if (eta < VIDES_SELFH_DEC_MIN_ETA) return 0;
   return vides_gpu_available();
 }

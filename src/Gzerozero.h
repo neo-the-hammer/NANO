@@ -18,6 +18,9 @@
 #include "cfree_cmatrix.h"
 #ifndef GZEROZERO_H
 #define GZEROZERO_H
+/* Decimation stopping rule, shared with the GPU (vides_gpu.cu). */
+#define VIDES_DECIM_TOL   1e-14
+#define VIDES_DECIM_MAXIT 60
 complex **Gzerozero(complex **wmH,complex **BETA,complex **BETADAGA,int N);
      //complex **Gzerozero(double E,complex **H,complex **BETA,complex **BETADAGA,int N)
 #endif
