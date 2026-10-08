@@ -27,6 +27,7 @@ test/plot_benchmark.py.
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -106,8 +107,10 @@ def worker(case, size, repeat, out):
         t0 = time.perf_counter()
         d.charge_T()
         times.append(time.perf_counter() - t0)
-    info = {"times": times, "n": int(d.n), "Nc": int(d.Nc),
-            "NE": int(len(np.asarray(d.E)))}
+    # Count energy points from the grid.  len(d.E) is not it: some paths
+    # (H_charge_T) fill the start of a preallocated NEmax-long array.
+    ne = int(round((d.Eupper - d.Elower) / d.dE)) + 1
+    info = {"times": times, "n": int(d.n), "Nc": int(d.Nc), "NE": ne}
     with open(out, "w") as f:
         json.dump(info, f)
 
@@ -117,6 +120,7 @@ def run(case, size, use_gpu, repeat, tmpdir):
                        % (case, "x".join(map(str, size)), use_gpu))
     env = dict(os.environ)
     env["VIDES_GPU"] = "1" if use_gpu else "0"
+    env["VIDES_PROFILE"] = "1"
     env["PYTHONPATH"] = os.pathsep.join(
         p for p in [os.getcwd(), env.get("PYTHONPATH", "")] if p)
     proc = subprocess.run(
@@ -127,12 +131,29 @@ def run(case, size, use_gpu, repeat, tmpdir):
         sys.stderr.write(proc.stdout[-2000:] + proc.stderr[-2000:])
         return None, ""
     backend = ""
+    prof = []
     for line in proc.stdout.splitlines():
-        if "NEGF backend" in line:
+        if "NEGF backend" in line and not backend:
             backend = line.strip()
-            break
+        m = PROFILE_RE.search(line)
+        if m:
+            prof.append(tuple(float(g) for g in m.groups()))
     with open(out) as f:
-        return json.load(f), backend
+        info = json.load(f)
+    # Keep the last solve's split, which matches the steady-state time.
+    if prof:
+        info["prof_total"], info["prof_self"], info["prof_solve"] = prof[-1]
+    return info, backend
+
+
+PROFILE_RE = re.compile(r"\[ViDES profile\].*total ([0-9.eE+-]+) s = "
+                        r"self-energy ([0-9.eE+-]+) s.*NEGF solve "
+                        r"([0-9.eE+-]+) s")
+
+
+def share(info, key):
+    t = info.get("prof_total")
+    return 100.0 * info[key] / t if t else float("nan")
 
 
 def fmt(t):
@@ -183,7 +204,9 @@ def main():
             g_first = gpu["times"][0]
             g_steady = min(gpu["times"][1:] or gpu["times"])
             rows.append((case, size, cpu["n"], cpu["Nc"], cpu["NE"],
-                         c_steady, g_first, g_steady, c_steady / g_steady))
+                         c_steady, g_first, g_steady, c_steady / g_steady,
+                         share(cpu, "prof_self") if "prof_self" in cpu else float("nan"),
+                         share(gpu, "prof_self") if "prof_self" in gpu else float("nan")))
             print("  done")
 
     print()
@@ -193,19 +216,21 @@ def main():
             print("WARNING: the 'GPU' runs did not use a GPU; the speedups "
                   "below are meaningless.")
     print()
-    hdr = ("%-12s %-9s %5s %5s %5s  %10s  %10s %10s  %8s"
+    hdr = ("%-12s %-9s %5s %5s %5s  %10s  %10s %10s  %8s  %8s %8s"
            % ("path", "size", "n", "Nc", "NE", "CPU", "GPU first",
-              "GPU steady", "speedup"))
+              "GPU steady", "speedup", "CPU:Σ%", "GPU:Σ%"))
     print(hdr)
     print("-" * len(hdr))
-    for case, size, n, Nc, NE, c, gf, gs, sp in rows:
-        print("%-12s %-9s %5d %5d %5d  %10s  %10s %10s  %7.1fx"
+    for case, size, n, Nc, NE, c, gf, gs, sp, sc, sg in rows:
+        print("%-12s %-9s %5d %5d %5d  %10s  %10s %10s  %7.1fx  %7.0f%% %7.0f%%"
               % (case, "x".join(map(str, size)), n, Nc, NE,
-                 fmt(c), fmt(gf), fmt(gs), sp))
+                 fmt(c), fmt(gf), fmt(gs), sp, sc, sg))
     print()
     print("CPU = best CPU solve; GPU steady = best GPU solve after the first. "
           "Speedup = CPU / GPU steady.")
     print("n = block size, Nc = number of blocks, NE = energy points per solve.")
+    print("Σ% = share of the solve spent computing contact self-energies, "
+          "which always run on the CPU, one energy at a time.")
 
     result = {
         "backend": gpu_line or "",
@@ -213,8 +238,9 @@ def main():
         "rows": [
             {"path": case, "size": list(size), "n": n, "Nc": Nc, "NE": NE,
              "cpu_s": c, "gpu_first_s": gf, "gpu_steady_s": gs,
-             "speedup": sp}
-            for case, size, n, Nc, NE, c, gf, gs, sp in rows
+             "speedup": sp, "cpu_selfenergy_pct": sc,
+             "gpu_selfenergy_pct": sg}
+            for case, size, n, Nc, NE, c, gf, gs, sp, sc, sg in rows
         ],
     }
     with open(args.out, "w") as f:

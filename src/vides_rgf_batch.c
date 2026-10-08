@@ -19,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 #include "vides_rgf_batch.h"
 #include "nrutil.h"
@@ -132,4 +133,30 @@ int vides_negf_chunk(const vides_rgf_desc *desc)
   if ((size_t)nb > host_cap) nb = (int)host_cap;
 
   return nb < 1 ? 1 : nb;
+}
+
+/* ------------------------------------------------------------------ */
+/* Profiling                                                           */
+/* ------------------------------------------------------------------ */
+
+double vides_now(void)
+{
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (double)ts.tv_sec + 1e-9 * (double)ts.tv_nsec;
+}
+
+void vides_profile_report(const char *who, double total,
+                          double t_self, double t_solve)
+{
+  const char *env = getenv("VIDES_PROFILE");
+  double other;
+  if (!env || env[0] == '0') return;
+  if (total <= 0) total = 1e-30;
+  other = total - t_self - t_solve;
+  printf("[ViDES profile] %s: total %.4f s = self-energy %.4f s (%.0f%%)"
+         " + NEGF solve %.4f s (%.0f%%) + other %.4f s (%.0f%%)\n",
+         who, total, t_self, 100.0 * t_self / total,
+         t_solve, 100.0 * t_solve / total, other, 100.0 * other / total);
+  fflush(stdout);
 }

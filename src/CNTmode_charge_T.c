@@ -249,6 +249,7 @@ static PyObject* py_CNTmode_charge_T(PyObject* self, PyObject* args)
     complex ***SSch,***SDch;
     double *Ech,*A1ch,*A2ch,*Tch;
     int NBmax,nb,ib;
+    double t_neg0,t_self=0,t_solve=0,t0;
 
     vdesc.n=Nm;
     vdesc.Nc=Nc;
@@ -278,10 +279,12 @@ static PyObject* py_CNTmode_charge_T(PyObject* self, PyObject* args)
         exit(0);
       }
 
+    t_neg0=vides_now();
     while (E<=(Eupper+dE*0.5))
       {
         // I fill one chunk of energies, building the Self-Energy for each
         // in case of Schottky barrier contacts or doped contacts
+        t0=vides_now();
         nb=0;
         while ((nb<NBmax)&&(E<=(Eupper+dE*0.5)))
           {
@@ -300,6 +303,8 @@ static PyObject* py_CNTmode_charge_T(PyObject* self, PyObject* args)
             E+=dE;
           }
 
+        t_self+=vides_now()-t0;
+        t0=vides_now();
         vdesc.NB=nb;
         if (vides_rgf_batch(&vdesc,Ech,DIAGMODE,UPDIAG,LOWDIAG,SSch,SDch,
                             A1ch,A2ch,Tch)!=0)
@@ -307,6 +312,7 @@ static PyObject* py_CNTmode_charge_T(PyObject* self, PyObject* args)
             printf("NEGF batch failed \n");
             exit(0);
           }
+        t_solve+=vides_now()-t0;
 
         for (ib=0;ib<nb;ib++)
           {
@@ -370,6 +376,8 @@ static PyObject* py_CNTmode_charge_T(PyObject* self, PyObject* args)
             ie++;
           }
       }
+
+    vides_profile_report("CNT mode space",vides_now()-t_neg0,t_self,t_solve);
 
     free(Ech);
     free(Tch);

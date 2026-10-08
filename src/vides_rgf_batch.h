@@ -136,6 +136,19 @@ int vides_rgf_batch_gpu(const vides_rgf_desc *desc,
 int vides_negf_chunk(const vides_rgf_desc *desc);
 
 /* ---------------------------------------------------------------- */
+/* Profiling (opt-in: VIDES_PROFILE=1)                               */
+/* ---------------------------------------------------------------- */
+
+/* Wall-clock seconds, for timing sections of the energy loop. */
+double vides_now(void);
+
+/* Print one line splitting an NEGF call into self-energy time, batched
+   solve time and the rest, if VIDES_PROFILE is set.  The line starts
+   with "[ViDES profile]" so scripts can pick it out. */
+void vides_profile_report(const char *who, double total,
+                          double t_self, double t_solve);
+
+/* ---------------------------------------------------------------- */
 /* GPU availability and policy                                       */
 /* ---------------------------------------------------------------- */
 
