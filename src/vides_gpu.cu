@@ -421,7 +421,7 @@ static void probe_device(void)
   else if (prop.major == 8 && prop.minor == 9)  fp64 = ", FP64 1/64 rate";
   else if (prop.major == 6 && prop.minor == 1)  fp64 = ", FP64 1/32 rate";
 
-  snprintf(g_desc, sizeof g_desc, "%s (sm_%d%d, %.1f GB%s)",
+  snprintf(g_desc, sizeof g_desc, "%.160s (sm_%d%d, %.1f GB%s)",
            prop.name, prop.major, prop.minor,
            (double)prop.totalGlobalMem / (1024.0 * 1024.0 * 1024.0), fp64);
   g_usable = 1;
