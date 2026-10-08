@@ -24,7 +24,7 @@
 #include "transmission.h"
 #ifndef LDOSMODE_H
 #define LDOSMODE_H
-void LDOSmode(double E,complex ***lowdiag,complex ***diag,complex ***updiag,
+void LDOSMODE(double E,complex ***lowdiag,complex ***diag,complex ***updiag,
 	      double ***A1,double ***A2,complex **sigmas,complex **sigmad,int n,
 	      int Nc,int flagtrans,double *T,int Nreal,int *order,double thop,
 	      double eta);
