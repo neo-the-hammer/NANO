@@ -123,17 +123,30 @@ def run_backend(name, use_gpu, outfile):
 
 
 def deviation(a, b):
-    """Max absolute difference and max relative difference."""
+    """Max absolute difference, the same relative to the array's largest
+    value, and the worst element-wise relative difference.
+
+    Pass/fail uses the middle one.  Element-wise relative error is
+    misleading here: transmission inside a band gap is exponentially small
+    (1e-5 .. 1e-10), so round-off that is 1e-9 of the peak transmission
+    shows up as a "relative" error of 1e-5 or worse on those points.  It is
+    still printed so a genuine problem confined to small values stays
+    visible.
+    """
     a, b = np.asarray(a, float), np.asarray(b, float)
     if a.shape != b.shape:
-        return float("inf"), float("inf")
+        return float("inf"), float("inf"), float("inf")
+    if a.size == 0:
+        return 0.0, 0.0, 0.0
     d = np.abs(a - b)
     scale = np.maximum(np.abs(a), np.abs(b))
+    peak = float(scale.max())
     nz = scale > 0
     rel = np.zeros_like(d)
     rel[nz] = d[nz] / scale[nz]
-    return (float(d.max()) if d.size else 0.0,
-            float(rel.max()) if rel.size else 0.0)
+    return (float(d.max()),
+            float(d.max()) / peak if peak > 0 else 0.0,
+            float(rel.max()))
 
 
 def main():
@@ -143,7 +156,7 @@ def main():
     ap.add_argument("--case", choices=sorted(CASES), action="append",
                     help="run only this case (repeatable)")
     ap.add_argument("--rtol", type=float, default=1e-6,
-                    help="max tolerated relative deviation (default 1e-6)")
+                    help="max tolerated deviation, relative to each array's peak value (default 1e-6)")
     args = ap.parse_args()
 
     if args.worker:
@@ -180,11 +193,12 @@ def main():
 
         worst = 0.0
         for key in ("charge", "T", "E"):
-            adiff, rdiff = deviation(cpu[key], gpu[key])
+            adiff, rdiff, erel = deviation(cpu[key], gpu[key])
             worst = max(worst, rdiff)
             status = "ok" if rdiff <= args.rtol else "FAIL"
-            print("  %-7s max|dGPU-CPU| = %-12.4g  max rel = %-12.4g  %s"
-                  % (key, adiff, rdiff, status))
+            print("  %-7s max|d| = %-10.3g  rel to peak = %-10.3g"
+                  "  worst element rel = %-10.3g  %s"
+                  % (key, adiff, rdiff, erel, status))
 
         if worst > args.rtol:
             failures.append(name)

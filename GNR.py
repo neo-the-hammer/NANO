@@ -91,6 +91,6 @@ def GNR(N, M):
             hamiltonian.append(p)
     #         hamiltonian.append([m, n, t, p, d])
 
-    print hamiltonian
+    print(hamiltonian)
 
     return array(hamiltonian, dtype=complex)
