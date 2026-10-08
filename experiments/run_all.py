@@ -74,11 +74,14 @@ def print_table(cols, rows, out=sys.stdout, indent="   "):
 def calibrate(model, exe, gpu, want_devices, log):
     log("Calibrating the time estimates on this machine ...")
     t0 = time.time()
-    C.run_native(exe, ["rgf", "std", 8, 16, 48, 1e-5, 1])
+    r = C.run_native(exe, ["rgf", "std", 16, 20, 64, 1e-5, 1])
     dt = time.time() - t0
-    # The CPU reference dominates this run; the GPU part (and its start-up)
-    # is left to the per-class refinement.
-    model.update("rgf", C.u_rgf(8, 16, 48), False, dt, also=("decim", "selfh", "_default"))
+    # Use the CPU solve's own time: the wall time of this process also
+    # holds CUDA start-up, which is not per-unit work (it inflated every
+    # estimate ~40x on a T4).  The native overhead is added back because
+    # update() subtracts it.
+    t_cpu = r["t_cpu"] + model.overhead["native"]
+    model.update("rgf", C.u_rgf(16, 20, 64), False, t_cpu, also=("decim", "selfh", "_default"))
     # Device work is counted in the same units as the native processes;
     # GPU classes start from the assumed GPU/CPU ratio.
     model.scale["dev"] = model.scale["rgf"]
