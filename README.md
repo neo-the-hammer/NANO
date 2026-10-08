@@ -231,6 +231,16 @@ in a process includes one-off CUDA start-up and is reported separately
 ("GPU first"); the speedup uses the steady-state time, which is what each
 further solve in a self-consistent loop costs.
 
+The results are also saved to `benchmark_results.json`. To plot them:
+
+```bash
+cd src && python3 ../test/plot_benchmark.py benchmark_results.json   # writes benchmark.png
+```
+
+One column per device path: time per solve on a log scale (CPU, GPU
+steady state, GPU first call) above the speedup, with the 1x break-even
+line marked. The same numbers are printed as a table.
+
 ### Files
 
 | File | Role |
@@ -242,6 +252,7 @@ further solve in a self-consistent loop costs.
 | `test/test_gpu_vs_cpu.py` | GPU-vs-CPU numerical comparison |
 | `test/gpu_syntax_check/` | Type check for `vides_gpu.cu` without CUDA |
 | `test/benchmark_gpu.py` | CPU vs GPU timing across device sizes |
+| `test/plot_benchmark.py` | Plots the benchmark results |
 | `test/gpu_emulation/` | Runs `vides_gpu.cu` on the CPU and checks it against the stock path |
 
 

@@ -19,6 +19,9 @@ Speedup is CPU steady / GPU steady.
 The C code prints progress for every solve; it is captured and discarded,
 so only the table is shown.  Large cases take minutes on the CPU side --
 use --quick for a first look.
+
+Results are also saved to benchmark_results.json (see --out) for
+test/plot_benchmark.py.
 """
 
 import argparse
@@ -144,6 +147,9 @@ def main():
     ap.add_argument("--repeat", type=int, default=2,
                     help="solves per backend per size (default 2: one "
                          "first call, one steady-state)")
+    ap.add_argument("--out", default="benchmark_results.json",
+                    help="where to save the results for plot_benchmark.py "
+                         "(default: benchmark_results.json)")
     ap.add_argument("--quick", action="store_true",
                     help="two small sizes per path only")
     args = ap.parse_args()
@@ -200,6 +206,21 @@ def main():
     print("CPU = best CPU solve; GPU steady = best GPU solve after the first. "
           "Speedup = CPU / GPU steady.")
     print("n = block size, Nc = number of blocks, NE = energy points per solve.")
+
+    result = {
+        "backend": gpu_line or "",
+        "repeat": repeat,
+        "rows": [
+            {"path": case, "size": list(size), "n": n, "Nc": Nc, "NE": NE,
+             "cpu_s": c, "gpu_first_s": gf, "gpu_steady_s": gs,
+             "speedup": sp}
+            for case, size, n, Nc, NE, c, gf, gs, sp in rows
+        ],
+    }
+    with open(args.out, "w") as f:
+        json.dump(result, f, indent=2)
+    print("Saved %s -- plot it with: python3 ../test/plot_benchmark.py %s"
+          % (args.out, args.out))
     return 0
 
 
