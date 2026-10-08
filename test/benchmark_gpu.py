@@ -229,8 +229,9 @@ def main():
     print("CPU = best CPU solve; GPU steady = best GPU solve after the first. "
           "Speedup = CPU / GPU steady.")
     print("n = block size, Nc = number of blocks, NE = energy points per solve.")
-    print("Σ% = share of the solve spent computing contact self-energies, "
-          "which always run on the CPU, one energy at a time.")
+    print("Σ% = share of the solve spent computing contact self-energies "
+          "(batched on the GPU for GNR and the Hamiltonian path; analytical, "
+          "per energy on the CPU, for CNTs).")
 
     result = {
         "backend": gpu_line or "",

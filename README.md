@@ -241,6 +241,26 @@ One column per device path: time per solve on a log scale (CPU, GPU
 steady state, GPU first call) above the speedup, with the 1x break-even
 line marked. The same numbers are printed as a table.
 
+### Experiments: every process, CPU vs GPU, in one command
+
+`experiments/` holds a suite of eight experiments that compare the CPU and
+GPU results of every NEGF process (the solver alone, the contact
+self-energy alone, whole devices), the accuracy of the two self-energy
+methods, and the speed of each process and of whole devices:
+
+```bash
+./build.sh --gpu
+python3 experiments/run_all.py --quick     # a few minutes
+python3 experiments/run_all.py             # full sizes
+```
+
+In Colab use `%run experiments/run_all.py --quick` so the figures appear
+inline. It prints the plan with an estimate per experiment and the total
+ETA, then each step with the experiment's and the overall ETA, then a
+verdict, table and figure per experiment and a summary; everything is also
+written to `experiments/results/report.html`. See
+[experiments/README.md](experiments/README.md).
+
 ### Files
 
 | File | Role |
@@ -254,6 +274,7 @@ line marked. The same numbers are printed as a table.
 | `test/benchmark_gpu.py` | CPU vs GPU timing across device sizes |
 | `test/plot_benchmark.py` | Plots the benchmark results |
 | `test/gpu_emulation/` | Runs `vides_gpu.cu` on the CPU and checks it against the stock path |
+| `experiments/` | CPU-vs-GPU correctness, accuracy and speed experiments (`run_all.py`) |
 
 
 ## Credits

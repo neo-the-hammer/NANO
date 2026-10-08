@@ -16,3 +16,6 @@ output/
 
 # Thatte-specific simulation scripts (not part of upstream)
 thatte_*.py
+
+# Experiments suite output
+experiments/results/
