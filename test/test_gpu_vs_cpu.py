@@ -89,32 +89,29 @@ def _hamiltonian(biased, offgrid=False):
 
 def case_hamiltonian():
     """Generic tight-binding Hamiltonian -> H_charge_T -> VIDES_RGF_LAKE,
-    biased like the CNT and GNR cases so the charge is a real quantity.
+    biased like the CNT and GNR cases.  Same path as Zincblend / nanowire.
 
-    This is the same path the Zincblend / silicon-nanowire class takes, so
-    covering it covers that too.
+    The grid is offset by half a step: with Phi = -0.2 the ribbon's
+    zigzag edge states sit at E = +0.2 eV, and an energy point landing
+    exactly there (as -3 + 160*0.02 does) makes the inversion nearly
+    singular at eta = 1e-5.  Both backends are then round-off dominated
+    at that one point, so it says nothing about whether the GPU is right.
     """
-    return _hamiltonian(True)
+    return _hamiltonian(True, offgrid=True)
+
+
+def case_hamiltonian_ongrid():
+    """'hamiltonian' with an energy point exactly on the edge-state
+    resonance at E = +0.2 eV.  Diagnostic: on a Colab T4 this disagreed by
+    ~7e-7 in charge, all of it from that single ill-conditioned point."""
+    return _hamiltonian(True, offgrid=False)
 
 
 def case_hamiltonian_eq():
-    """The same device at equilibrium (Phi = 0, mu1 = mu2 = 0).
-
-    A neutral ribbon's net charge is electrons minus holes, two nearly
-    equal totals, so what is left is cancellation noise on both backends
-    and is not expected to agree.  Kept as a diagnostic, not a pass/fail
-    check: compare its charge figures against case 'hamiltonian'.
-    """
+    """The same device at equilibrium (Phi = 0, mu1 = mu2 = 0), on the
+    unshifted grid, so a point again lands on the edge-state resonance
+    (here at E ~ 0).  Diagnostic, as 'hamiltonian_ongrid'."""
     return _hamiltonian(False)
-
-
-def case_hamiltonian_offgrid():
-    """'hamiltonian' with the energy grid shifted by half a step, so no
-    point falls at E ~ 0 (where LDOS_Lake nudges E by 1e-4 and the zigzag
-    edge states make the inversion nearly singular).  Diagnostic: if this
-    agrees and 'hamiltonian' does not, the disagreement is confined to that
-    one ill-conditioned point."""
-    return _hamiltonian(True, offgrid=True)
 
 
 CASES = {
@@ -122,13 +119,13 @@ CASES = {
     "cntmode": case_cntmode,
     "gnr": case_gnr,
     "hamiltonian": case_hamiltonian,
+    "hamiltonian_ongrid": case_hamiltonian_ongrid,
     "hamiltonian_eq": case_hamiltonian_eq,
-    "hamiltonian_offgrid": case_hamiltonian_offgrid,
 }
 
-# Cases whose charge is cancellation noise by construction; reported but
-# not counted as failures.
-DIAGNOSTIC_ONLY = {"hamiltonian_eq", "hamiltonian_offgrid"}
+# Cases with an energy point on a near-singular resonance by construction;
+# reported but not counted as failures.
+DIAGNOSTIC_ONLY = {"hamiltonian_ongrid", "hamiltonian_eq"}
 
 
 # ----------------------------------------------------------------------

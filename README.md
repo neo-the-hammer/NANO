@@ -194,36 +194,29 @@ coalescing, launch limits), and the `__syncthreads()` reduction in
 
 ### Status
 
-**The CUDA backend has not been compiled with `nvcc` or run on a real
-device.** It was developed in an environment with no GPU, no `nvcc`, and no
-network access to install one. What *has* been verified:
+**Verified on a real GPU** (Google Colab, Tesla T4, CUDA, `sm_75`): all four
+device paths run on the GPU and agree with the CPU path to round-off.
 
-- every new and modified C source compiles clean (`gcc -fsyntax-only`);
-- `vides_gpu.cu` passes a host-side C++ type check;
-- **the GPU driver runs under emulation and reproduces the stock CPU result
-  to ~1e-10 relative** across the STD, Lake and mode-space variants, on
-  normal and degenerate shapes, with no device-memory leak;
-- the batch-size chooser returns sane values across problem shapes;
-- the makefile parses and selects the right objects with and without `GPU=1`.
+| Case | Charge, relative to peak | Transmission, relative to peak |
+|---|---|---|
+| CNT (`LDOS`) | 1.5e-10 | 1.8e-10 |
+| CNT mode space (`LDOSMODE`) | 1.2e-15 | 1.6e-15 |
+| GNR (`LDOS`) | 3.8e-09 | 1.5e-15 |
+| Hamiltonian / nanowire (`LDOS_Lake`) | 2.7e-11 | 2.0e-15 |
 
-Two real bugs were found and fixed in the backend during this work, both
-by review rather than by running code, which is a fair indication of how
-much the remaining untested surface matters:
+One caveat applies to both backends, not just the GPU. If an energy point
+lands exactly on a near-singular resonance — for example a graphene
+ribbon's zigzag edge states at the band centre, with a small `eta` — the
+inversion there is ill-conditioned and the result at that one energy is
+accurate to only a few digits. The CPU and GPU then disagree there (on the
+T4, by ~7e-7 in integrated charge), because cuBLAS and LAPACK round
+differently and the conditioning amplifies it. Neither value is the
+"right" one. Shifting the grid by half a step, or using a larger `eta`,
+removes it. `test_gpu_vs_cpu.py` keeps such a case as a diagnostic
+(`hamiltonian_ongrid`).
 
-- an operator-precedence error (`+` binding tighter than `<<`) in the
-  batch-size calculation, which would have made the device look permanently
-  out of memory and silently disabled the GPU;
-- the batched inversion built its destination pointers with a stride of
-  `n*n`, but four of its five call sites write one block of `gl`/`gr`, whose
-  per-energy slabs are `Nc*n*n` apart — every inversion past the first
-  energy would have landed at the wrong offset and corrupted the array.
-
-The emulation harness above was written afterwards and found no further
-disagreement, which is why the numbers now agree to round-off.
-
-Still unverified: that it compiles under `nvcc`, and that it is faster.
-Run `test/test_gpu_vs_cpu.py` on the real device before trusting any number
-the GPU path produces.
+Not yet measured: the speedup. Correctness is established; whether a T4
+is faster than the CPU for a given device size has not been benchmarked.
 
 ### Files
 
