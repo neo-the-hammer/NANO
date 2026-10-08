@@ -54,6 +54,9 @@ make
 make install  # installs to lib/
 ```
 
+or, on systems without tcsh (e.g. Google Colab), `./build.sh` (CPU only)
+or `./build.sh --gpu` (with the CUDA backend, see below).
+
 The compiled shared library `NanoTCAD_ViDESmod.so` and Python wrapper `NanoTCAD_ViDES.py` are placed in `lib/`.
 
 ## Usage
@@ -102,6 +105,28 @@ The energy-independent Hamiltonian blocks are uploaded once per batch and
 shared across the whole batch with a zero stride, so only the self-energies
 scale with the batch.
 
+**Contact self-energies are batched on the GPU too.** On the CPU they are
+computed one energy at a time, and once the solve itself moved to the GPU
+they became most of the run time. Where the self-energy comes from
+Lopez-Sancho decimation, the GPU now runs that recursion for the whole
+batch of energies at once (`vides_decimation_batch_gpu`):
+
+| Entry point | Contact self-energy | On the GPU build |
+|---|---|---|
+| `CNT_charge_T`, `CNTmode_charge_T` | analytical (`selfanalitical*`) | CPU, already cheap |
+| `GNR_charge_T` | decimation (`selfGNR` → `Gzerozero`) | batched on the GPU |
+| `H_charge_T` | eigen method (`selfH_new`) or decimation (`selfH_dec`) | decimation, batched on the GPU |
+
+`selfH_new` relies on a non-Hermitian eigensolver (`zgeev`) that has no
+batched CUDA 11 equivalent, so the Hamiltonian path gained a decimation
+alternative, `selfH_dec`, built on the same lead cell. Both are exact in
+principle; scored by the residual of the lead's own fixed-point equation,
+the eigen method is more accurate at very small `eta` (~1e-12 vs ~1e-9 at
+`eta = 1e-5`) and cheaper per energy on a CPU, while decimation batches.
+So by default a GPU build uses decimation and a CPU run keeps the eigen
+method; `VIDES_SELFH` overrides either (experiments A1 and A2 measure
+exactly this trade-off).
+
 ### Building
 
 ```bash
@@ -143,6 +168,8 @@ of energy points; for a very small device the CPU may still win.
 |---|---|
 | `VIDES_GPU=0` | Force the CPU path even on a GPU build |
 | `VIDES_GPU_BATCH=N` | Cap the number of energies per batch |
+| `VIDES_SELFH=eig` / `dec` | Hamiltonian path: eigen-method or decimation contact self-energy (default: `dec` on the GPU, `eig` on the CPU) |
+| `VIDES_PROFILE=1` | Print a per-call split: self-energy time, NEGF solve time, the rest |
 
 Each NEGF call prints which backend it selected and the batch size. If the
 GPU fails mid-run (out of memory, a singular block in the batched LU), the
@@ -196,6 +223,10 @@ coalescing, launch limits), and the `__syncthreads()` reduction in
 
 **Verified on a real GPU** (Google Colab, Tesla T4, CUDA, `sm_75`): all four
 device paths run on the GPU and agree with the CPU path to round-off.
+These numbers predate the GPU self-energy (they were measured with the
+self-energies on the CPU); the batched decimation has so far been validated
+under emulation (`test/gpu_emulation/`), and its real-GPU results will come
+from the experiments suite below.
 
 | Case | Charge, relative to peak | Transmission, relative to peak |
 |---|---|---|
@@ -260,6 +291,20 @@ ETA, then each step with the experiment's and the overall ETA, then a
 verdict, table and figure per experiment and a summary; everything is also
 written to `experiments/results/report.html`. See
 [experiments/README.md](experiments/README.md).
+
+| id | kind | compares |
+|---|---|---|
+| C1 | correctness | NEGF solver alone (std, Lake, mode space) |
+| C2 | correctness | contact self-energy (decimation) alone |
+| C3 | correctness | whole devices: CNT, CNT mode, GNR, Hamiltonian |
+| A1 | accuracy | eigen vs decimation self-energy vs `eta` |
+| A2 | accuracy | accuracy vs speed, backend x self-energy method |
+| S1 | speed | NEGF solver scaling in `n`, `Nc`, energies per batch |
+| S2 | speed | self-energy time per energy, each method and backend |
+| S3 | speed | whole devices, with time breakdown |
+
+**Results on a Tesla T4:** *pending — to be filled in from the first real
+GPU run of the suite.*
 
 ### Files
 
