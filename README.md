@@ -215,8 +215,21 @@ differently and the conditioning amplifies it. Neither value is the
 removes it. `test_gpu_vs_cpu.py` keeps such a case as a diagnostic
 (`hamiltonian_ongrid`).
 
-Not yet measured: the speedup. Correctness is established; whether a T4
-is faster than the CPU for a given device size has not been benchmarked.
+Speed is measured with `test/benchmark_gpu.py` (below).
+
+### Benchmarking
+
+```bash
+cd src && PYTHONPATH=. python3 ../test/benchmark_gpu.py --quick   # a few minutes
+cd src && PYTHONPATH=. python3 ../test/benchmark_gpu.py           # full sweep
+```
+
+For each path it times the same charge/transmission solve on the CPU and
+the GPU across growing devices, and prints block size `n`, block count
+`Nc`, energy points `NE`, the times, and the speedup. The first GPU call
+in a process includes one-off CUDA start-up and is reported separately
+("GPU first"); the speedup uses the steady-state time, which is what each
+further solve in a self-consistent loop costs.
 
 ### Files
 
@@ -228,6 +241,7 @@ is faster than the CPU for a given device size has not been benchmarked.
 | `src/vides_gpu_stub.c` | No-op stubs for CPU-only builds |
 | `test/test_gpu_vs_cpu.py` | GPU-vs-CPU numerical comparison |
 | `test/gpu_syntax_check/` | Type check for `vides_gpu.cu` without CUDA |
+| `test/benchmark_gpu.py` | CPU vs GPU timing across device sizes |
 | `test/gpu_emulation/` | Runs `vides_gpu.cu` on the CPU and checks it against the stock path |
 
 
