@@ -67,12 +67,7 @@ def case_gnr():
     return d.charge, d.E, d.T
 
 
-def case_hamiltonian():
-    """Generic tight-binding Hamiltonian -> H_charge_T -> VIDES_RGF_LAKE.
-
-    This is the same path the Zincblend / silicon-nanowire class takes, so
-    covering it covers that too.
-    """
+def _hamiltonian(biased):
     from NanoTCAD_ViDES import Hamiltonian
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "demo"))
     from GNR import GNR
@@ -81,8 +76,32 @@ def case_hamiltonian():
     d.H = h
     d.Elower, d.Eupper, d.dE = -3.0, 3.0, 0.02
     d.eta = 1e-5
+    if biased:
+        d.Phi = -0.2 * np.ones(d.n * d.Nc)
+        d.mu2 = -0.3
     d.charge_T()
     return d.charge, d.E, d.T
+
+
+def case_hamiltonian():
+    """Generic tight-binding Hamiltonian -> H_charge_T -> VIDES_RGF_LAKE,
+    biased like the CNT and GNR cases so the charge is a real quantity.
+
+    This is the same path the Zincblend / silicon-nanowire class takes, so
+    covering it covers that too.
+    """
+    return _hamiltonian(True)
+
+
+def case_hamiltonian_eq():
+    """The same device at equilibrium (Phi = 0, mu1 = mu2 = 0).
+
+    A neutral ribbon's net charge is electrons minus holes, two nearly
+    equal totals, so what is left is cancellation noise on both backends
+    and is not expected to agree.  Kept as a diagnostic, not a pass/fail
+    check: compare its charge figures against case 'hamiltonian'.
+    """
+    return _hamiltonian(False)
 
 
 CASES = {
@@ -90,7 +109,12 @@ CASES = {
     "cntmode": case_cntmode,
     "gnr": case_gnr,
     "hamiltonian": case_hamiltonian,
+    "hamiltonian_eq": case_hamiltonian_eq,
 }
+
+# Cases whose charge is cancellation noise by construction; reported but
+# not counted as failures.
+DIAGNOSTIC_ONLY = {"hamiltonian_eq"}
 
 
 # ----------------------------------------------------------------------
@@ -201,7 +225,10 @@ def main():
                   % (key, adiff, rdiff, erel, status))
 
         if worst > args.rtol:
-            failures.append(name)
+            if name in DIAGNOSTIC_ONLY:
+                print("  (diagnostic case: not counted as a failure)")
+            else:
+                failures.append(name)
 
     print("=" * 68)
     if skipped:

@@ -74,8 +74,23 @@ static void build(Problem &p, int n, int Nc, int NB, unsigned long long seed)
       }
     /* Couple neighbouring slices; last up / first low stay zero, as the
        entry points set them. */
-    if (b < Nc-1) for (int i = 0; i < n; i++) p.up[b][i][i].r = -2.7;
-    if (b > 0)    for (int i = 0; i < n; i++) p.low[b][i][i].r = -2.7;
+    /* General complex couplings.  Multiples of the identity commute with
+       everything and would hide a swapped matrix-product order, so fill
+       the whole block.  low[b] = up[b-1]^dagger keeps H Hermitian. */
+    if (b < Nc-1)
+      for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++) {
+          p.up[b][i][j].r = (i == j ? -2.7 : 0.0) + 0.4*srand2();
+          p.up[b][i][j].i = 0.3*srand2();
+        }
+  }
+  for (int b = 1; b < Nc; b++)
+    for (int i = 0; i < n; i++)
+      for (int j = 0; j < n; j++) {
+        p.low[b][i][j].r =  p.up[b-1][j][i].r;
+        p.low[b][i][j].i = -p.up[b-1][j][i].i;
+      }
+  {
   }
 
   for (int e = 0; e < NB; e++) {
