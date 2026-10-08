@@ -66,7 +66,9 @@ CFILES="nrutil cmatrix cmatrixm cvectorm ctensor4 c3tensor ccvector \
         cfree_cmatrix cfree_cvectorm cfree_ctensor4 cfree_c3tensor cfree_ccvector \
         complass csum csub cmatsub cmatsum cmatdaga cmatmul cmatmul3 cmatinv cmatRe \
         cdabs cIm cmatmul_proc spectralfun spectralfunmode transmission VAVdaga \
-        rgfblock rgfblock_Lake LDOS LDOS_Lake LDOSmode vides_rgf_batch"
+        rgfblock rgfblock_Lake LDOS LDOS_Lake LDOSmode vides_rgf_batch \
+        Gzerozero cmatnorm2diff selfGNR selfH_dec create_updiagGNR \
+        create_lowdiagGNR create_beta1GNR create_beta2GNR create_beta2transpGNR"
 
 OBJS=""
 for f in $CFILES; do

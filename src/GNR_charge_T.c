@@ -263,8 +263,9 @@ static PyObject* py_GNR_charge_T(PyObject* self, PyObject* args)
     vides_rgf_desc vdesc;
     complex ***SSch,***SDch;
     double *Ech,*A1ch,*A2ch,*Tch;
-    int NBmax,nb,ib;
+    int NBmax,nb,ib,doped;
     double t_neg0,t_self=0,t_solve=0,t0;
+    complex **W0s=NULL,**W0d=NULL,**Bc=NULL,**BDc=NULL;
 
     vdesc.n=n;
     vdesc.Nc=Nc;
@@ -294,6 +295,18 @@ static PyObject* py_GNR_charge_T(PyObject* self, PyObject* args)
         exit(0);
       }
 
+    // The leads' decimation cells are energy independent: build them once.
+    doped=(strcasecmp(GNRboundary,"doped")==0);
+    if (doped)
+      {
+        W0s=cmatrix(0,4*n-1,0,4*n-1);
+        W0d=cmatrix(0,4*n-1,0,4*n-1);
+        Bc=cmatrix(0,4*n-1,0,4*n-1);
+        BDc=cmatrix(0,4*n-1,0,4*n-1);
+        selfGNR_cell(passos,n,thop,W0s,Bc,BDc);
+        selfGNR_cell(passod,n,thop,W0d,Bc,BDc);  /* BETA's are the same */
+      }
+
     t_neg0=vides_now();
     while (E<=(Eupper+dE*0.5))
       {
@@ -303,12 +316,9 @@ static PyObject* py_GNR_charge_T(PyObject* self, PyObject* args)
         nb=0;
         while ((nb<NBmax)&&(E<=(Eupper+dE*0.5)))
           {
-            if (strcasecmp(GNRboundary,"doped")==0)
-              {
-                SSch[nb]=selfGNR(E,passos,n,thop,eta);
-                SDch[nb]=selfGNR(E,passod,n,thop,eta);
-              }
-            else
+            // Doped contacts: the self-energies of the whole chunk are
+            // computed together below.  Schottky ones are closed-form.
+            if (!doped)
               {
                 SSch[nb]=selfschottky(E,(mu1),n,thop,eta);
                 SDch[nb]=selfschottky(E,(mu2),n,thop,eta);
@@ -316,6 +326,15 @@ static PyObject* py_GNR_charge_T(PyObject* self, PyObject* args)
             Ech[nb]=E;
             nb++;
             E+=dE;
+          }
+
+        // selfGNR() for every energy of the chunk at once -- batched
+        // decimation on the GPU, or the same Gzerozero() calls as before
+        // on the CPU.
+        if (doped)
+          {
+            vides_decimation_batch(4*n,nb,Ech,eta,W0s,Bc,BDc,3*n,n,SSch);
+            vides_decimation_batch(4*n,nb,Ech,eta,W0d,Bc,BDc,3*n,n,SDch);
           }
 
         t_self+=vides_now()-t0;
@@ -447,6 +466,14 @@ static PyObject* py_GNR_charge_T(PyObject* self, PyObject* args)
       }
 
     vides_profile_report("GNR",vides_now()-t_neg0,t_self,t_solve);
+
+    if (doped)
+      {
+        cfree_cmatrix(W0s,0,4*n-1,0,4*n-1);
+        cfree_cmatrix(W0d,0,4*n-1,0,4*n-1);
+        cfree_cmatrix(Bc,0,4*n-1,0,4*n-1);
+        cfree_cmatrix(BDc,0,4*n-1,0,4*n-1);
+      }
 
     free(Ech);
     free(Tch);

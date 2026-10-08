@@ -8,6 +8,7 @@
 
 #include "H_charge_T.h"
 #include "vides_rgf_batch.h"
+#include "selfH_dec.h"
 #include <time.h>
 static PyObject* py_H_charge_T(PyObject* self, PyObject* args)
 {
@@ -315,8 +316,9 @@ static PyObject* py_H_charge_T(PyObject* self, PyObject* args)
     vides_rgf_desc vdesc;
     complex ***SSch,***SDch;
     double *Ech,*A1ch,*A2ch,*Tch;
-    int NBmax,nb,ib;
+    int NBmax,nb,ib,use_dec;
     double t_neg0,t_self=0,t_solve=0,t0;
+    complex **W0s=NULL,**W0d=NULL,**Bs=NULL,**BDs=NULL,**Bd=NULL,**BDd=NULL;
 
     vdesc.n=NUM;
     vdesc.Nc=Nc;
@@ -346,6 +348,20 @@ static PyObject* py_H_charge_T(PyObject* self, PyObject* args)
         exit(0);
       }
 
+    // Contact self-energy method (see vides_selfh_use_decimation()).
+    // The leads' decimation cells are energy independent: build them once.
+    use_dec=vides_selfh_use_decimation();
+    if (!rank) printf("Contact self-energy: %s \n",
+                      use_dec ? "decimation (selfH_dec)" : "eigen-decomposition (selfH_new)");
+    if (use_dec)
+      {
+        W0s=cmatrix(0,4*NUM-1,0,4*NUM-1);  Bs=cmatrix(0,4*NUM-1,0,4*NUM-1);
+        BDs=cmatrix(0,4*NUM-1,0,4*NUM-1);  W0d=cmatrix(0,4*NUM-1,0,4*NUM-1);
+        Bd=cmatrix(0,4*NUM-1,0,4*NUM-1);   BDd=cmatrix(0,4*NUM-1,0,4*NUM-1);
+        selfH_dec_cell(DIAG,UPDIAG,LOWDIAG,NUM,Nc,0,W0s,Bs,BDs);
+        selfH_dec_cell(DIAG,UPDIAG,LOWDIAG,NUM,Nc,1,W0d,Bd,BDd);
+      }
+
     t_neg0=vides_now();
     while (E<=(Eupper+dE*0.5)){
 
@@ -355,11 +371,21 @@ static PyObject* py_H_charge_T(PyObject* self, PyObject* args)
       nb=0;
       while ((nb<NBmax)&&(E<=(Eupper+dE*0.5)))
         {
-          SSch[nb] = selfH_new(E, DIAG, UPDIAG, LOWDIAG, NUM, Nc,0, eta);
-          SDch[nb] = selfH_new(E, DIAG, UPDIAG, LOWDIAG, NUM, Nc,1, eta);
+          if (!use_dec)
+            {
+              SSch[nb] = selfH_new(E, DIAG, UPDIAG, LOWDIAG, NUM, Nc,0, eta);
+              SDch[nb] = selfH_new(E, DIAG, UPDIAG, LOWDIAG, NUM, Nc,1, eta);
+            }
           Ech[nb]=E;
           nb++;
           E+=dE;
+        }
+
+      // Decimation: the self-energies of the whole chunk at once.
+      if (use_dec)
+        {
+          vides_decimation_batch(4*NUM,nb,Ech,eta,W0s,Bs,BDs,3*NUM,NUM,SSch);
+          vides_decimation_batch(4*NUM,nb,Ech,eta,W0d,Bd,BDd,3*NUM,NUM,SDch);
         }
 
       t_self+=vides_now()-t0;
@@ -445,6 +471,13 @@ static PyObject* py_H_charge_T(PyObject* self, PyObject* args)
     }
 
     vides_profile_report("Hamiltonian",vides_now()-t_neg0,t_self,t_solve);
+
+    if (use_dec)
+      {
+        cfree_cmatrix(W0s,0,4*NUM-1,0,4*NUM-1);  cfree_cmatrix(Bs,0,4*NUM-1,0,4*NUM-1);
+        cfree_cmatrix(BDs,0,4*NUM-1,0,4*NUM-1);  cfree_cmatrix(W0d,0,4*NUM-1,0,4*NUM-1);
+        cfree_cmatrix(Bd,0,4*NUM-1,0,4*NUM-1);   cfree_cmatrix(BDd,0,4*NUM-1,0,4*NUM-1);
+      }
 
     free(Ech);
     free(Tch);

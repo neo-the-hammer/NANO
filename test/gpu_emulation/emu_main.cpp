@@ -18,6 +18,15 @@
 
 extern "C" {
 #include "vides_rgf_batch.h"
+#include "cmatrix.h"
+#include "cfree_cmatrix.h"
+vides_complex **cmatinv(vides_complex **A, int N);
+vides_complex **selfGNR(double E, double *Em1, int N, double thop, double eta);
+void selfGNR_cell(double *Em1, int N, double thop,
+                  vides_complex **W0, vides_complex **BETA, vides_complex **BETADAGA);
+void selfH_dec_cell(vides_complex ***diag, vides_complex ***updiag, vides_complex ***lowdiag,
+                    int N, int Nc, int lead,
+                    vides_complex **W0, vides_complex **BETA, vides_complex **BETADAGA);
 }
 
 /* Deterministic PRNG so a failure is reproducible. */
@@ -183,6 +192,173 @@ static int run_case(const char *label, int variant, int n, int Nc, int NB,
   return ok;
 }
 
+/* ---- batched decimation (contact self-energies) ------------------- */
+
+static double blk_diff(vides_complex **a, vides_complex **b, int n, double *scale)
+{
+  double d = 0, m = 0;
+  for (int i = 0; i < n; i++)
+    for (int j = 0; j < n; j++) {
+      d = fmax(d, hypot(a[i][j].r - b[i][j].r, a[i][j].i - b[i][j].i));
+      m = fmax(m, hypot(a[i][j].r, a[i][j].i));
+    }
+  *scale = m;
+  return d;
+}
+
+static void free_out(vides_complex ***o, int NB, int n)
+{ for (int b = 0; b < NB; b++) cfree_cmatrix(o[b], 0, n - 1, 0, n - 1); }
+
+/* Residual of the lead's fixed-point equation for one self-energy
+   sigma (N x N block at (3,3) of the cell), relative to |sigma|:
+     sigma = BETA_30 [ (W0 + (E + i eta) I - sigma@(3,3))^-1 ]_00 BETADAGA_03
+   The exact answer satisfies it whatever method produced it, so it
+   arbitrates between GPU and CPU when they differ. */
+static double lead_residual(vides_complex **sig, double E, double eta, int N,
+                            vides_complex **W0, vides_complex **B, vides_complex **BD)
+{
+  const int M = 4 * N;
+  vides_complex **W = cmatrix(0, M - 1, 0, M - 1), **G;
+  for (int i = 0; i < M; i++) for (int j = 0; j < M; j++) W[i][j] = W0[i][j];
+  for (int i = 0; i < M; i++) { W[i][i].r = E + W[i][i].r; W[i][i].i += eta; }
+  for (int i = 0; i < N; i++) for (int j = 0; j < N; j++) {
+    W[3*N+i][3*N+j].r -= sig[i][j].r; W[3*N+i][3*N+j].i -= sig[i][j].i; }
+  G = cmatinv(W, M);
+  double r = 0, m = 0;
+  for (int i = 0; i < N; i++) for (int j = 0; j < N; j++) {
+    double fr = 0, fi = 0;
+    for (int k = 0; k < N; k++) for (int l = 0; l < N; l++) {
+      vides_complex b = B[3*N+i][k], g = G[k][l], c = BD[l][3*N+j];
+      double tr = b.r*g.r - b.i*g.i, ti = b.r*g.i + b.i*g.r;
+      fr += tr*c.r - ti*c.i; fi += tr*c.i + ti*c.r; }
+    r = fmax(r, hypot(fr - sig[i][j].r, fi - sig[i][j].i));
+    m = fmax(m, hypot(sig[i][j].r, sig[i][j].i)); }
+  cfree_cmatrix(W, 0, M - 1, 0, M - 1); cfree_cmatrix(G, 0, M - 1, 0, M - 1);
+  return m > 0 ? r / m : r;
+}
+
+/* GPU vs CPU decimation on one lead cell, at NB energies. */
+static int check_decim_cell(const char *label, int N, vides_complex **W0,
+                            vides_complex **B, vides_complex **BD,
+                            double eta, double tol)
+{
+  const int M = 4 * N, NB = 9;
+  double E[NB];
+  vides_complex **cpu[NB], **gpu[NB];
+  for (int b = 0; b < NB; b++) {
+    E[b] = -2.43 + 0.61 * b;
+    cpu[b] = cmatrix(0, N - 1, 0, N - 1);
+    gpu[b] = cmatrix(0, N - 1, 0, N - 1);
+  }
+  size_t before = vides_emu_live_bytes();
+  int rc_c = vides_decimation_batch_cpu(M, NB, E, eta, W0, B, BD, 3 * N, N, cpu);
+  int rc_g = vides_decimation_batch_gpu(M, NB, E, eta, W0, B, BD, 3 * N, N, gpu);
+  size_t after = vides_emu_live_bytes();
+
+  double worst = 0, sc, rc_res = 0, rg_res = 0;
+  int ok = (rc_c == 0 && rc_g == 0);
+  if (ok)
+    for (int b = 0; b < NB; b++) {
+      double d = blk_diff(cpu[b], gpu[b], N, &sc);
+      if (sc > 0 && d / sc > worst) worst = d / sc;
+      rc_res = fmax(rc_res, lead_residual(cpu[b], E[b], eta, N, W0, B, BD));
+      rg_res = fmax(rg_res, lead_residual(gpu[b], E[b], eta, N, W0, B, BD));
+    }
+  /* Pass if GPU and CPU agree to tol, or if the GPU result satisfies the
+     lead equation about as well as the CPU's -- then the gap is the
+     problem's conditioning (decimation at small eta), not a GPU bug. */
+  int agree = worst <= tol, as_good = rg_res <= 10 * rc_res + 1e-12;
+  ok = ok && (agree || as_good) && after == before;
+  printf("  %-30s eta=%-6g  GPU vs CPU rel %-8.1e residual cpu %-8.1e gpu %-8.1e%s  %s\n",
+         label, eta, worst, rc_res, rg_res, after != before ? "  LEAK" : "",
+         ok ? "ok" : "MISMATCH");
+  free_out(cpu, NB, N); free_out(gpu, NB, N);
+  return ok;
+}
+
+static int check_decimation(void)
+{
+  int ok = 1;
+  const int N = 6, M = 24;
+  double Em1[4 * N];
+  for (int i = 0; i < 4 * N; i++) Em1[i] = -0.2 + 0.05 * (i % 3);
+
+  vides_complex **W0 = cmatrix(0, M - 1, 0, M - 1), **B = cmatrix(0, M - 1, 0, M - 1),
+                **BD = cmatrix(0, M - 1, 0, M - 1);
+  selfGNR_cell(Em1, N, -2.7, W0, B, BD);
+
+  /* 1. The CPU batch must reproduce stock selfGNR() exactly -- it is what
+        CPU-only GNR runs now go through. */
+  {
+    const int NB = 5;
+    double E[NB] = {-2.1, -0.7, 0.3, 1.1, 2.6};
+    vides_complex **out[NB];
+    for (int b = 0; b < NB; b++) out[b] = cmatrix(0, N - 1, 0, N - 1);
+    vides_decimation_batch_cpu(M, NB, E, 1e-5, W0, B, BD, 3 * N, N, out);
+    int exact = 1;
+    for (int b = 0; b < NB; b++) {
+      vides_complex **ref = selfGNR(E[b], Em1, N, -2.7, 1e-5);
+      for (int i = 0; i < N; i++)
+        for (int j = 0; j < N; j++)
+          if (ref[i][j].r != out[b][i][j].r || ref[i][j].i != out[b][i][j].i) exact = 0;
+      cfree_cmatrix(ref, 0, N - 1, 0, N - 1);
+    }
+    printf("  %-30s CPU batch == stock selfGNR, bit for bit:  %s\n",
+           "GNR self-energy", exact ? "ok" : "MISMATCH");
+    ok &= exact;
+    free_out(out, NB, N);
+  }
+
+  /* 2. GPU vs CPU decimation, GNR cell */
+  ok &= check_decim_cell("GNR cell (n=6)", N, W0, B, BD, 1e-5, 1e-9);
+  ok &= check_decim_cell("GNR cell (n=6)", N, W0, B, BD, 1e-3, 1e-9);
+
+  /* 3. eta must reach the GPU: results at two etas must differ */
+  {
+    const int NB = 1;
+    double E[NB] = {0.83};
+    vides_complex **a[NB], **b[NB];
+    a[0] = cmatrix(0, N - 1, 0, N - 1); b[0] = cmatrix(0, N - 1, 0, N - 1);
+    vides_decimation_batch_gpu(M, NB, E, 1e-5, W0, B, BD, 3 * N, N, a);
+    vides_decimation_batch_gpu(M, NB, E, 1e-1, W0, B, BD, 3 * N, N, b);
+    double sc, d = blk_diff(a[0], b[0], N, &sc);
+    int passes_eta = d / sc > 1e-3;
+    printf("  %-30s eta changes the GPU result (rel %.2e):  %s\n",
+           "broadening honoured", d / sc, passes_eta ? "ok" : "MISMATCH");
+    ok &= passes_eta;
+    free_out(a, NB, N); free_out(b, NB, N);
+  }
+
+  /* 4. GPU vs CPU decimation, Hamiltonian-path cell (random four-slice
+        periodic lead, both contacts) */
+  {
+    const int Nc = 13;
+    Problem p;
+    build(p, N, Nc, 1, 0xC0FFEEULL);
+    /* make the lead four-slice periodic, as selfH_dec_cell assumes */
+    for (int s = 4; s < Nc; s++)
+      for (int i = 0; i < N; i++)
+        for (int j = 0; j < N; j++) {
+          p.diag[s][i][j] = p.diag[s % 4][i][j];
+          if (s < Nc - 1) p.up[s][i][j] = p.up[s % 4][i][j];
+          p.low[s][i][j] = p.low[(s - 1) % 4 + 1][i][j];
+        }
+    for (int lead = 0; lead < 2; lead++) {
+      selfH_dec_cell(p.diag, p.up, p.low, N, Nc, lead, W0, B, BD);
+      char lab[64];
+      snprintf(lab, sizeof lab, "Hamiltonian cell, %s", lead ? "drain" : "source");
+      ok &= check_decim_cell(lab, N, W0, B, BD, 1e-5, 1e-9);
+      ok &= check_decim_cell(lab, N, W0, B, BD, 1e-3, 1e-9);
+    }
+    destroy(p);
+  }
+
+  cfree_cmatrix(W0, 0, M - 1, 0, M - 1);
+  cfree_cmatrix(B, 0, M - 1, 0, M - 1);
+  cfree_cmatrix(BD, 0, M - 1, 0, M - 1);
+  return ok;
+}
+
 /* The block reduction in k_trace_prod is the one thing the serial
    emulation cannot exercise, so check the tree itself directly. */
 static int check_reduction_tree(void)
@@ -255,6 +431,8 @@ int main(void)
   ok &= run_case("STD  larger (n=12 Nc=9 NB=7)", VIDES_RGF_STD, 12, 9, 7, 0, NULL, 1e-9);
 
   ok &= check_reduction_tree();
+  printf("  ---- contact self-energy (batched decimation)\n");
+  ok &= check_decimation();
   printf("  ----\n");
   ok &= check_sizing();
 

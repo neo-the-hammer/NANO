@@ -21,5 +21,7 @@
 #ifndef SELFgnr_H
 #define SELFgnr_H
 complex **selfGNR(double E,double *Em1,int N,double thop,double eta);
+void selfGNR_cell(double *Em1,int N,double thop,
+                  complex **W0,complex **BETA,complex **BETADAGA);
 #endif
 

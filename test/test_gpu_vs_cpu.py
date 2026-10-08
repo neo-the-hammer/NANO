@@ -119,8 +119,20 @@ CASES = {
     "cntmode": case_cntmode,
     "gnr": case_gnr,
     "hamiltonian": case_hamiltonian,
+    "hamiltonian_default": case_hamiltonian,
     "hamiltonian_ongrid": case_hamiltonian_ongrid,
     "hamiltonian_eq": case_hamiltonian_eq,
+}
+
+# Extra environment per case, applied to both the CPU and the GPU run.
+# The Hamiltonian path's contact self-energy is decimation on the GPU but
+# the eigen method on the CPU by default (vides_selfh_use_decimation), so
+# 'hamiltonian' pins both runs to decimation: any difference is then the
+# GPU's.  'hamiltonian_default' keeps the defaults, i.e. what a user gets.
+CASE_ENV = {
+    "hamiltonian": {"VIDES_SELFH": "dec"},
+    "hamiltonian_ongrid": {"VIDES_SELFH": "dec"},
+    "hamiltonian_eq": {"VIDES_SELFH": "dec"},
 }
 
 # Cases with an energy point on a near-singular resonance by construction;
@@ -145,6 +157,7 @@ def worker(name, outfile):
 def run_backend(name, use_gpu, outfile):
     env = dict(os.environ)
     env["VIDES_GPU"] = "1" if use_gpu else "0"
+    env.update(CASE_ENV.get(name, {}))
     env["PYTHONPATH"] = os.pathsep.join(
         p for p in [os.getcwd(), env.get("PYTHONPATH", "")] if p)
     proc = subprocess.run(

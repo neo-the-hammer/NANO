@@ -32,3 +32,13 @@ int vides_rgf_batch_gpu(const vides_rgf_desc *desc,
   (void)sigmas; (void)sigmad; (void)A1; (void)A2; (void)T;
   return -1;   /* never selected: vides_gpu_available() is 0 */
 }
+
+int vides_decimation_batch_gpu(int M, int NB, const double *E, double eta,
+                               vides_complex **W0, vides_complex **BETA,
+                               vides_complex **BETADAGA, int off, int nout,
+                               vides_complex ***out)
+{
+  (void)M; (void)NB; (void)E; (void)eta; (void)W0; (void)BETA;
+  (void)BETADAGA; (void)off; (void)nout; (void)out;
+  return -1;   /* never selected: vides_gpu_available() is 0 */
+}

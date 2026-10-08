@@ -136,6 +136,49 @@ int vides_rgf_batch_gpu(const vides_rgf_desc *desc,
 int vides_negf_chunk(const vides_rgf_desc *desc);
 
 /* ---------------------------------------------------------------- */
+/* Batched contact self-energy: Lopez-Sancho decimation              */
+/* ---------------------------------------------------------------- */
+
+/* Run Gzerozero() -- the decimation behind selfGNR() and selfH_dec() --
+ * for NB energies at once, and return one block of each result.
+ *
+ *   M          order of the lead cell (4N)
+ *   E [NB]     energies; the cell for energy b is W0 + (E[b] + i eta) I
+ *   W0, BETA, BETADAGA   M x M cmatrix()es from selfGNR_cell() or
+ *                        selfH_dec_cell(), energy independent
+ *   off, nout  the block returned: rows/cols off .. off+nout-1 (3N, N for
+ *              both callers -- the boundary slice)
+ *   out [NB]   filled with freshly allocated nout x nout cmatrix()es,
+ *              which the caller frees with cfree_cmatrix()
+ *
+ * The CPU path calls Gzerozero() itself, so its results are identical to
+ * the per-energy code it replaces.  The GPU path runs the same recursion
+ * batched over energies, with the same stopping rule: iterate until the
+ * t_i, t~_i matrices of every energy are exactly zero (see Gzerozero.c --
+ * its norm test is only ever 1 or NaN).  Returns 0 on success.
+ */
+int vides_decimation_batch(int M, int NB, const double *E, double eta,
+                           vides_complex **W0, vides_complex **BETA,
+                           vides_complex **BETADAGA, int off, int nout,
+                           vides_complex ***out);
+int vides_decimation_batch_cpu(int M, int NB, const double *E, double eta,
+                               vides_complex **W0, vides_complex **BETA,
+                               vides_complex **BETADAGA, int off, int nout,
+                               vides_complex ***out);
+int vides_decimation_batch_gpu(int M, int NB, const double *E, double eta,
+                               vides_complex **W0, vides_complex **BETA,
+                               vides_complex **BETADAGA, int off, int nout,
+                               vides_complex ***out);
+
+/* Which self-energy H_charge_T uses: 1 = decimation (selfH_dec, batched,
+ * GPU-capable), 0 = the original eigen method (selfH_new).  Set by
+ * VIDES_SELFH=dec|eig; by default decimation when a GPU is in use and the
+ * eigen method otherwise.  The eigen method is the more accurate of the
+ * two at small eta (see test/gpu_emulation/selfenergy_check.c), and on a
+ * CPU also the faster. */
+int vides_selfh_use_decimation(void);
+
+/* ---------------------------------------------------------------- */
 /* Profiling (opt-in: VIDES_PROFILE=1)                               */
 /* ---------------------------------------------------------------- */
 

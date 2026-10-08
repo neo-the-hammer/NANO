@@ -26,6 +26,9 @@
 #include "LDOS.h"
 #include "LDOS_Lake.h"
 #include "LDOSmode.h"
+#include "Gzerozero.h"
+#include "cmatrix.h"
+#include "cfree_cmatrix.h"
 
 int vides_rgf_batch_cpu(const vides_rgf_desc *desc,
                         const double *E,
@@ -159,4 +162,64 @@ void vides_profile_report(const char *who, double total,
          who, total, t_self, 100.0 * t_self / total,
          t_solve, 100.0 * t_solve / total, other, 100.0 * other / total);
   fflush(stdout);
+}
+
+/* ------------------------------------------------------------------ */
+/* Batched decimation                                                  */
+/* ------------------------------------------------------------------ */
+
+int vides_decimation_batch_cpu(int M, int NB, const double *E, double eta,
+                               vides_complex **W0, vides_complex **BETA,
+                               vides_complex **BETADAGA, int off, int nout,
+                               vides_complex ***out)
+{
+  vides_complex **W = cmatrix(0, M - 1, 0, M - 1), **Gz;
+  int b, i, j;
+
+  for (b = 0; b < NB; b++) {
+    for (i = 0; i < M; i++)
+      for (j = 0; j < M; j++)
+        W[i][j] = W0[i][j];
+    /* Same diagonal the per-energy builders produce: E + Re, Im + eta. */
+    for (i = 0; i < M; i++) {
+      W[i][i].r = E[b] + W[i][i].r;
+      W[i][i].i = W[i][i].i + eta;
+    }
+    Gz = Gzerozero(W, BETA, BETADAGA, M);
+    for (i = 0; i < nout; i++)
+      for (j = 0; j < nout; j++)
+        out[b][i][j] = Gz[off + i][off + j];
+    cfree_cmatrix(Gz, 0, M - 1, 0, M - 1);
+  }
+  cfree_cmatrix(W, 0, M - 1, 0, M - 1);
+  return 0;
+}
+
+int vides_decimation_batch(int M, int NB, const double *E, double eta,
+                           vides_complex **W0, vides_complex **BETA,
+                           vides_complex **BETADAGA, int off, int nout,
+                           vides_complex ***out)
+{
+  int b;
+  for (b = 0; b < NB; b++)
+    out[b] = cmatrix(0, nout - 1, 0, nout - 1);
+
+  if (vides_gpu_available()) {
+    int rc = vides_decimation_batch_gpu(M, NB, E, eta, W0, BETA, BETADAGA,
+                                        off, nout, out);
+    if (rc == 0) return 0;
+    fprintf(stderr,
+            "[ViDES/GPU] decimation batch failed (rc=%d), falling back to CPU\n",
+            rc);
+  }
+  return vides_decimation_batch_cpu(M, NB, E, eta, W0, BETA, BETADAGA,
+                                    off, nout, out);
+}
+
+int vides_selfh_use_decimation(void)
+{
+  const char *env = getenv("VIDES_SELFH");
+  if (env && (env[0] == 'e' || env[0] == 'E')) return 0;
+  if (env && (env[0] == 'd' || env[0] == 'D')) return 1;
+  return vides_gpu_available();
 }

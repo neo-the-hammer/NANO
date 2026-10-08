@@ -852,3 +852,249 @@ extern "C" int vides_rgf_batch_gpu(const vides_rgf_desc *desc,
 #undef BAIL
 #undef TRY
 }
+
+/* ================================================================== */
+/* Batched Lopez-Sancho decimation (Gzerozero) for contact             */
+/* self-energies -- see vides_decimation_batch() in vides_rgf_batch.h. */
+/* ================================================================== */
+
+/* out = (I - A) - B, per n x n block: cmatsub(cmatsub(ID, A), B). */
+static __global__ void k_imab(cuDoubleComplex *out, const cuDoubleComplex *A,
+                              const cuDoubleComplex *B, int n, int NB)
+{
+  size_t k = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+  size_t nn = (size_t)n * n;
+  if (k >= nn * (size_t)NB) return;
+  size_t p = k % nn;
+  double id = ((p / n) == (p % n)) ? 1.0 : 0.0;
+  out[k].x = (id - A[k].x) - B[k].x;
+  out[k].y = (0.0 - A[k].y) - B[k].y;
+}
+
+/* T = T + X, elementwise: cmatsum(T, X). */
+static __global__ void k_add_into(cuDoubleComplex *T, const cuDoubleComplex *X,
+                                  size_t total)
+{
+  size_t k = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+  if (k < total) { T[k].x = T[k].x + X[k].x; T[k].y = T[k].y + X[k].y; }
+}
+
+/* Set *flag if any element is not exactly zero.  Gzerozero() stops only
+   when t_i and t~_i are all-zero (its norm is 1, or 0/0 = NaN), so this is
+   the stopping test, not a tolerance.  -0.0 counts as zero, as on the CPU. */
+static __global__ void k_any_nonzero(int *flag, const cuDoubleComplex *X,
+                                     size_t total)
+{
+  size_t k = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+  if (k < total && (X[k].x != 0.0 || X[k].y != 0.0)) *flag = 1;
+}
+
+/* Copy block (off..off+nout-1)^2 of each M x M matrix into a compact
+   [NB][nout][nout] buffer, so only the boundary block is downloaded. */
+static __global__ void k_gather_block(cuDoubleComplex *out,
+                                      const cuDoubleComplex *G,
+                                      int M, int off, int nout, int NB)
+{
+  size_t k = (size_t)blockIdx.x * blockDim.x + threadIdx.x;
+  size_t oo = (size_t)nout * nout;
+  if (k >= oo * (size_t)NB) return;
+  size_t b = k / oo, p = k % oo;
+  size_t i = p / nout, j = p % nout;
+  out[k] = G[b * (size_t)M * M + (off + i) * (size_t)M + (off + j)];
+}
+
+#define DECIM_MAX_ITERS 200
+
+/* One sub-batch of nb energies (E already offset).  Separate from the
+   public entry so the caller can split a large batch to fit memory. */
+static int decim_sub(cublasHandle_t h, int M, int nb, const double *E,
+                     double eta, const cuDoubleComplex *dW0,
+                     const cuDoubleComplex *dB, const cuDoubleComplex *dBD,
+                     int off, int nout, cuDoubleComplex *hout)
+{
+  const size_t mm  = (size_t)M * M;
+  const size_t bmm = (size_t)nb * mm;
+  const long long sM = (long long)mm, s0 = 0;
+  const size_t cz = sizeof(cuDoubleComplex);
+
+  Ws w; memset(&w, 0, sizeof w);
+  w.owned = (void **)calloc(WS_MAX_ALLOCS, sizeof(void *));
+  if (!w.owned) return -2;
+
+  cuDoubleComplex *Wb, *ti, *tt, *T, *ttc, *X1, *X2, *X3, *X4, *blk, *tmpp;
+  double *dE;
+  int *nzflag;   /* the stopping test's own flag: w.flag is where inv_rm()
+                    records singular pivots, and must not be reset */
+  int iters = 0, hflag = 0;
+
+#define DALLOC(ptr, bytes)                                                 \
+  do {                                                                     \
+    if (ws_alloc(&w, (void **)&(ptr), (bytes)) != 0) {                     \
+      fprintf(stderr, "[ViDES/GPU] out of device memory (decimation)\n");  \
+      ws_free(&w); return -2;                                              \
+    }                                                                      \
+  } while (0)
+
+  DALLOC(Wb, bmm * cz);  DALLOC(ti, bmm * cz);  DALLOC(tt, bmm * cz);
+  DALLOC(T,  bmm * cz);  DALLOC(ttc, bmm * cz);
+  DALLOC(X1, bmm * cz);  DALLOC(X2, bmm * cz);
+  DALLOC(X3, bmm * cz);  DALLOC(X4, bmm * cz);
+  DALLOC(w.lu, bmm * cz);
+  DALLOC(blk, (size_t)nb * nout * nout * cz);
+  DALLOC(dE, (size_t)nb * sizeof(double));
+  DALLOC(w.p_lu,  (size_t)nb * sizeof(cuDoubleComplex *));
+  DALLOC(w.p_dst, (size_t)nb * sizeof(cuDoubleComplex *));
+  DALLOC(w.ipiv,  (size_t)nb * M * sizeof(int));
+  DALLOC(w.info,  (size_t)nb * sizeof(int));
+  DALLOC(w.flag,  sizeof(int));
+  DALLOC(nzflag,  sizeof(int));
+#undef DALLOC
+
+#define DBAIL(rc) do { ws_free(&w); return (rc); } while (0)
+#define DCUDA(call)   do { if ((call) != cudaSuccess)            DBAIL(-1); } while (0)
+#define DBLAS(call)   do { if ((call) != CUBLAS_STATUS_SUCCESS)  DBAIL(-1); } while (0)
+
+  DCUDA(cudaMemcpy(dE, E, (size_t)nb * sizeof(double), cudaMemcpyHostToDevice));
+
+  /* wmH = W0 + (E + i eta) I, as k_build_d does for the RGF blocks. */
+  k_build_d<<<nblk(bmm), TPB>>>(Wb, dW0, (const cuDoubleComplex *)NULL,
+                                dE, eta, M, nb, 0);
+
+  /* temp = inv(wmH); t_i = temp BETADAGA; t~_i = temp BETA;
+     T = t_i; t~cycle = t~_i. */
+  if (inv_rm(h, &w, X1, sM, Wb, M, nb) != 0) DBAIL(-3);
+  DBLAS(gemm_rm(h, ti, sM, X1, sM, dBD, s0, M, nb));
+  DBLAS(gemm_rm(h, tt, sM, X1, sM, dB,  s0, M, nb));
+  DCUDA(cudaMemcpy(T,   ti, bmm * cz, cudaMemcpyDeviceToDevice));
+  DCUDA(cudaMemcpy(ttc, tt, bmm * cz, cudaMemcpyDeviceToDevice));
+
+  for (;;) {
+    /* Stop once t_i and t~_i are exactly zero for every energy.  An
+       energy that got there early keeps iterating on zeros, which leaves
+       its T unchanged: M = I, t_new = 0, T += t~cycle * 0. */
+    DCUDA(cudaMemset(nzflag, 0, sizeof(int)));
+    k_any_nonzero<<<nblk(bmm), TPB>>>(nzflag, ti, bmm);
+    k_any_nonzero<<<nblk(bmm), TPB>>>(nzflag, tt, bmm);
+    DCUDA(cudaMemcpy(&hflag, nzflag, sizeof(int), cudaMemcpyDeviceToHost));
+    if (!hflag) break;
+    if (++iters > DECIM_MAX_ITERS) {
+      fprintf(stderr, "[ViDES/GPU] decimation did not reach zero in %d "
+              "iterations; deferring to the CPU\n", DECIM_MAX_ITERS);
+      DBAIL(-6);
+    }
+
+    /* inv(I - t_i t~_i - t~_i t_i) */
+    DBLAS(gemm_rm(h, X1, sM, ti, sM, tt, sM, M, nb));
+    DBLAS(gemm_rm(h, X2, sM, tt, sM, ti, sM, M, nb));
+    k_imab<<<nblk(bmm), TPB>>>(X3, X1, X2, M, nb);
+    if (inv_rm(h, &w, X4, sM, X3, M, nb) != 0) DBAIL(-3);
+
+    /* t_new = inv * t_i^2 -> X3,   t~_new = inv * t~_i^2 -> X1 */
+    DBLAS(gemm_rm(h, X1, sM, ti, sM, ti, sM, M, nb));
+    DBLAS(gemm_rm(h, X2, sM, tt, sM, tt, sM, M, nb));
+    DBLAS(gemm_rm(h, X3, sM, X4, sM, X1, sM, M, nb));
+    DBLAS(gemm_rm(h, X1, sM, X4, sM, X2, sM, M, nb));
+
+    /* T = T + t~cycle t_new ;  t~cycle = t~cycle t~_new */
+    DBLAS(gemm_rm(h, X2, sM, ttc, sM, X3, sM, M, nb));
+    k_add_into<<<nblk(bmm), TPB>>>(T, X2, bmm);
+    DBLAS(gemm_rm(h, X4, sM, ttc, sM, X1, sM, M, nb));
+    tmpp = ttc; ttc = X4; X4 = tmpp;
+
+    /* t_i = t_new, t~_i = t~_new */
+    tmpp = ti; ti = X3; X3 = tmpp;
+    tmpp = tt; tt = X1; X1 = tmpp;
+  }
+
+  /* Gz = BETA inv(wmH - BETA T) BETADAGA  (cmatmul3: BETA (inv BETADAGA)) */
+  DBLAS(gemm_rm(h, X1, sM, dB, s0, T, sM, M, nb));
+  k_sub<<<nblk(bmm), TPB>>>(X2, Wb, X1, bmm);
+  if (inv_rm(h, &w, X3, sM, X2, M, nb) != 0) DBAIL(-3);
+  DBLAS(gemm_rm(h, X4, sM, X3, sM, dBD, s0, M, nb));
+  DBLAS(gemm_rm(h, X1, sM, dB, s0, X4, sM, M, nb));
+
+  k_gather_block<<<nblk((size_t)nb * nout * nout), TPB>>>(blk, X1, M, off, nout, nb);
+  DCUDA(cudaDeviceSynchronize());
+  DCUDA(cudaGetLastError());
+
+  /* Any singular pivot in any inversion along the way (sticky in w.flag)
+     makes the result meaningless: refuse the batch, the dispatcher redoes
+     it on the CPU. */
+  DCUDA(cudaMemcpy(&hflag, w.flag, sizeof(int), cudaMemcpyDeviceToHost));
+  if (hflag) {
+    fprintf(stderr, "[ViDES/GPU] singular matrix in batched decimation "
+            "(info=%d); deferring to the CPU\n", hflag);
+    DBAIL(-5);
+  }
+
+  DCUDA(cudaMemcpy(hout, blk, (size_t)nb * nout * nout * cz, cudaMemcpyDeviceToHost));
+  ws_free(&w);
+  return 0;
+#undef DBAIL
+#undef DCUDA
+#undef DBLAS
+}
+
+extern "C" int vides_decimation_batch_gpu(int M, int NB, const double *E,
+                                          double eta, vides_complex **W0,
+                                          vides_complex **BETA,
+                                          vides_complex **BETADAGA,
+                                          int off, int nout,
+                                          vides_complex ***out)
+{
+  probe_device();
+  if (!g_usable) return -1;
+  if (M <= 0 || NB <= 0 || nout <= 0 || off < 0 || off + nout > M) return -1;
+
+  const size_t mm = (size_t)M * M, cz = sizeof(cuDoubleComplex);
+  cublasHandle_t h = NULL;
+  cuDoubleComplex *dW0 = NULL, *dB = NULL, *dBD = NULL, *hout = NULL;
+  int rc = 0, start, nb, chunk, b, i;
+  size_t freeb = 0, totalb = 0, per;
+
+  /* Ten M x M work matrices per energy, plus small change. */
+  per = 10 * mm * cz + (size_t)nout * nout * cz + (size_t)M * sizeof(int) + 64;
+  if (cudaMemGetInfo(&freeb, &totalb) != cudaSuccess) return -1;
+  if (freeb <= 3 * mm * cz + ((size_t)64 << 20)) return -2;
+  chunk = (int)(((double)(freeb - 3 * mm * cz - ((size_t)64 << 20)) * 0.8) / per);
+  if (chunk < 1) return -2;
+  if (chunk > NB) chunk = NB;
+
+  if (cublasCreate(&h) != CUBLAS_STATUS_SUCCESS) return -2;
+  if (cudaMalloc((void **)&dW0, mm * cz) != cudaSuccess ||
+      cudaMalloc((void **)&dB,  mm * cz) != cudaSuccess ||
+      cudaMalloc((void **)&dBD, mm * cz) != cudaSuccess) { rc = -2; goto done; }
+  hout = (cuDoubleComplex *)malloc((size_t)chunk * nout * nout * cz);
+  {
+    cuDoubleComplex *stage = (cuDoubleComplex *)malloc(mm * cz);
+    if (!hout || !stage) { free(stage); rc = -2; goto done; }
+    /* The three cell matrices are separate cmatrix() allocations, each
+       one contiguous M*M block. */
+    memcpy(stage, &W0[0][0], mm * cz);
+    if (cudaMemcpy(dW0, stage, mm * cz, cudaMemcpyHostToDevice) != cudaSuccess) rc = -2;
+    memcpy(stage, &BETA[0][0], mm * cz);
+    if (cudaMemcpy(dB, stage, mm * cz, cudaMemcpyHostToDevice) != cudaSuccess) rc = -2;
+    memcpy(stage, &BETADAGA[0][0], mm * cz);
+    if (cudaMemcpy(dBD, stage, mm * cz, cudaMemcpyHostToDevice) != cudaSuccess) rc = -2;
+    free(stage);
+    if (rc) goto done;
+  }
+
+  for (start = 0; start < NB; start += chunk) {
+    nb = (NB - start < chunk) ? NB - start : chunk;
+    rc = decim_sub(h, M, nb, E + start, eta, dW0, dB, dBD, off, nout, hout);
+    if (rc) goto done;
+    for (b = 0; b < nb; b++)
+      for (i = 0; i < nout; i++)
+        memcpy(&out[start + b][i][0],
+               hout + ((size_t)b * nout + i) * nout, (size_t)nout * cz);
+  }
+
+done:
+  free(hout);
+  if (dW0) cudaFree(dW0);
+  if (dB)  cudaFree(dB);
+  if (dBD) cudaFree(dBD);
+  if (h) cublasDestroy(h);
+  return rc;
+}

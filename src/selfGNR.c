@@ -101,3 +101,53 @@ complex **selfGNR(double E,double *Em1,int N,double thop,double eta)
   return temp; 
   //return Gsnew;
 }
+
+/* Energy-independent part of selfGNR()'s 4N x 4N lead cell, for the
+   batched decimation (vides_decimation_batch): wmH(E) = W0 + (E + i eta) I.
+   W0, BETA and BETADAGA must be 4N x 4N cmatrix()es; they are overwritten.
+   Built exactly as selfGNR() builds EImEm1, BETA and BETADAGA, so the
+   batched result matches selfGNR() bit for bit on the CPU. */
+void selfGNR_cell(double *Em1,int N,double thop,
+                  complex **W0,complex **BETA,complex **BETADAGA)
+{
+  complex zero,**temp,**beta,**betadaga;
+  int i,j,k;
+  zero.r=0;
+  zero.i=0;
+  for (i=0;i<4*N;i++)
+    for (j=0;j<4*N;j++)
+      {
+        W0[i][j]=zero;
+        BETA[i][j]=zero;
+        BETADAGA[i][j]=zero;
+      }
+  for (i=1;i<4;i++)
+    {
+      temp=create_updiagGNR(i+1,N,thop);
+      for (j=0;j<N;j++)
+        for (k=0;k<N;k++)
+          W0[j+(i-1)*N][k+i*N]=temp[j][k];
+      cfree_cmatrix(temp,0,N-1,0,N-1);
+    }
+  for (i=0;i<3;i++)
+    {
+      temp=create_lowdiagGNR(i+2,N,thop);
+      for (j=0;j<N;j++)
+        for (k=0;k<N;k++)
+          W0[j+(i+1)*N][k+i*N]=temp[j][k];
+      cfree_cmatrix(temp,0,N-1,0,N-1);
+    }
+  for (j=0;j<4;j++)
+    for (i=0;i<N;i++)
+      W0[i+N*j][i+N*j]=complass(Em1[i+(3-j)*N],0);
+  beta=create_beta2GNR(N,thop);
+  betadaga=create_beta2transpGNR(N,thop);
+  for (i=0;i<N;i++)
+    for (j=0;j<N;j++)
+      {
+        BETA[3*N+i][j]=beta[i][j];
+        BETADAGA[i][j+3*N]=betadaga[i][j];
+      }
+  cfree_cmatrix(beta,0,N-1,0,N-1);
+  cfree_cmatrix(betadaga,0,N-1,0,N-1);
+}

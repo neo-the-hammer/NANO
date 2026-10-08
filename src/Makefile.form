@@ -56,7 +56,7 @@ OBJECTS_BLAS_LAPACK = slamch.o csscal.o cswap.o ccopy.o cdotc.o cdotu.o cgemm.o 
 
 OBJECTS_REL_1.1 =	 Hamiltonian_py.o H_charge_T.o selfH_W.o GzerozeroH_W.o zeig_S.o ConvertPycomplex_to_Ccomplex.o phonon_GNR.o free_dvectorm.o free_ivectorm.o ceig.o phonon_graphene.o electron_GNR.o Bose_Einstein.o rateACABS.o rateACEM.o rateOPTABS.o rateOPTEM.o zhpevx.o solvePoisson2D.o ffunpoisson2D.o preparej2D.o Jbuild2D.o indice2D.o create_J2D.o destroy_J2D.o sign.o c3tensor.o cfree_c3tensor.o
 
-OBJECTS_REL_1.2 =	 Zinc.o nanowire.o hamiltonian.o hamil.o elementsitosi_avo.o atoms_coordinates_nanowire.o passivationSiavo.o bands.o selfH_new.o eigenvalues_non_symmetric_matrix.o cmul.o cmatvect.o flip_cmatrix.o LDOS_Lake.o rgfblock_Lake.o cmatmul_proc.o
+OBJECTS_REL_1.2 =	 Zinc.o nanowire.o hamiltonian.o hamil.o elementsitosi_avo.o atoms_coordinates_nanowire.o passivationSiavo.o bands.o selfH_new.o selfH_dec.o eigenvalues_non_symmetric_matrix.o cmul.o cmatvect.o flip_cmatrix.o LDOS_Lake.o rgfblock_Lake.o cmatmul_proc.o
 
 OBJECTS_REL_1.4 =	 writeout.o ris1d.o solve_schroedinger_1D.o ffunpoisson1D.o preparej1D.o Jbuild1D.o indice1D.o fphalf.o sub_fphalf.o sub_fermi.o Fermi_Integrals.o
 
