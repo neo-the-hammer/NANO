@@ -5,6 +5,7 @@
 //  See the file "license.txt" for information on usage and
 //  redistribution of this file, and for a DISCLAIMER OF ALL WARRANTIES.
 // ====================================================================== 
+#include <stdlib.h>
 #include "destroy_J2D.h"
 void destroy_J2D(double ****J,int nx,int ny,int neq)
 {

@@ -24,7 +24,7 @@ static PyObject* py_writeout(PyObject* self, PyObject* args)
   #else
   string2=PyString_AsString(string);
   #endif
-  printf(string2);
+  printf("%s", string2);
   printf("\n");
   char *s = "Hello from writeout!";
   return Py_BuildValue("s", s);

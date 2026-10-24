@@ -38,10 +38,10 @@ GPU_OBJ    =      vides_gpu_stub.o
 GPU_LIBS   =
 endif
 ifeq ($(GOTOBLAS),1)
-CFLAGS  =       -fPIC -O3 -std=gnu89 -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-return-mismatch -pthread -DPyArray_DOUBLE=NPY_DOUBLE -DPyArray_CDOUBLE=NPY_CDOUBLE -DPyArray_INT=NPY_INT -DPyInt_AsLong=PyLong_AsLong -DPyInt_FromLong=PyLong_FromLong '-DPyString_AsString(o)=PyBytes_AsString(PyUnicode_AsEncodedString(o,"utf-8","strict"))' -llapack 
+CFLAGS  =       -fPIC -O3 -std=gnu89 -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-return-mismatch -Wno-cpp -pthread -DPyArray_DOUBLE=NPY_DOUBLE -DPyArray_CDOUBLE=NPY_CDOUBLE -DPyArray_INT=NPY_INT -DPyInt_AsLong=PyLong_AsLong -DPyInt_FromLong=PyLong_FromLong '-DPyString_AsString(o)=PyBytes_AsString(PyUnicode_AsEncodedString(o,"utf-8","strict"))' -llapack 
 FFLAGS  =       -fPIC -O3 -fallow-argument-mismatch -std=legacy -llapack 
 else
-CFLAGS  =       -fPIC -O3 -std=gnu89 -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-return-mismatch -pthread -DPyArray_DOUBLE=NPY_DOUBLE -DPyArray_CDOUBLE=NPY_CDOUBLE -DPyArray_INT=NPY_INT -DPyInt_AsLong=PyLong_AsLong -DPyInt_FromLong=PyLong_FromLong '-DPyString_AsString(o)=PyBytes_AsString(PyUnicode_AsEncodedString(o,"utf-8","strict"))'
+CFLAGS  =       -fPIC -O3 -std=gnu89 -Wno-implicit-function-declaration -Wno-int-conversion -Wno-incompatible-pointer-types -Wno-return-mismatch -Wno-cpp -pthread -DPyArray_DOUBLE=NPY_DOUBLE -DPyArray_CDOUBLE=NPY_CDOUBLE -DPyArray_INT=NPY_INT -DPyInt_AsLong=PyLong_AsLong -DPyInt_FromLong=PyLong_FromLong '-DPyString_AsString(o)=PyBytes_AsString(PyUnicode_AsEncodedString(o,"utf-8","strict"))'
 FFLAGS  =       -fPIC -O3 -fallow-argument-mismatch -std=legacy
 endif
 NOMAIN  =
@@ -74,10 +74,10 @@ $(OBJECTS) :
 
 ifeq ($(GOTOBLAS),1)
 NanoTCAD_ViDESmod   : $(OBJECTS) $(OBJECTS_REL_1.1) $(OBJECTS_REL_1.2) $(OBJECTS_REL_1.4) $(GPU_OBJ) NanoTCAD_ViDESmod.o
-	$(FF) $(CFLAGS) -shared -o NanoTCAD_ViDESmod.so $(OBJECTS) $(OBJECTS_REL_1.1) $(OBJECTS_REL_1.2) $(OBJECTS_REL_1.4) $(GPU_OBJ) -lm $(NOMAIN) {LIB} -lgoto2 -lgfortran -lpthread $(GPU_LIBS)
+	$(FF) $(FFLAGS) -pthread -shared -o NanoTCAD_ViDESmod.so $(OBJECTS) $(OBJECTS_REL_1.1) $(OBJECTS_REL_1.2) $(OBJECTS_REL_1.4) $(GPU_OBJ) -lm $(NOMAIN) {LIB} -lgoto2 -lgfortran -lpthread $(GPU_LIBS)
 else
 NanoTCAD_ViDESmod   : $(OBJECTS) $(OBJECTS_BLAS_LAPACK) $(OBJECTS_REL_1.1) $(OBJECTS_REL_1.2) $(OBJECTS_REL_1.4) $(GPU_OBJ) NanoTCAD_ViDESmod.o
-	$(FF) $(CFLAGS) -shared -o NanoTCAD_ViDESmod.so $(OBJECTS) $(OBJECTS_BLAS_LAPACK) $(OBJECTS_REL_1.1) $(OBJECTS_REL_1.2) $(OBJECTS_REL_1.4) $(GPU_OBJ) -lm $(NOMAIN) {LIB} -lpthread $(GPU_LIBS) 
+	$(FF) $(FFLAGS) -pthread -shared -o NanoTCAD_ViDESmod.so $(OBJECTS) $(OBJECTS_BLAS_LAPACK) $(OBJECTS_REL_1.1) $(OBJECTS_REL_1.2) $(OBJECTS_REL_1.4) $(GPU_OBJ) -lm $(NOMAIN) {LIB} -lpthread $(GPU_LIBS) 
 endif
 
 comp  :

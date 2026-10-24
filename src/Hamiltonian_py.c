@@ -15,7 +15,8 @@ void py_hamiltonian(PyArrayObject* hamiltonian, int n, int M, int r, int c, doub
 
   N=n*c;
 
-  import_array();
+  /* import_array() returns a value on failure; this function is void */
+  if (_import_array() < 0) { PyErr_Print(); return; }
 
 /*
   if (!PyArg_ParseTuple(args,"OII", &hamiltonian, &N, &M))

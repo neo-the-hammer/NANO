@@ -1284,7 +1284,9 @@ C     ON FIRST CALL, IF NO DATA UNCOMMENTED, TEST MACHINE TYPES.
  
  
 c	Modifica Pietro 
-	d1mach=1e-90 
+c	the original literal 1e-90 is single precision and underflowed
+c	to 0.0, which is the value this routine has always returned
+	d1mach=0d0 
 c      D1MACH = DMACH(I) 
       RETURN 
  9000 FORMAT(/' Adjust D1MACH by uncommenting data statements'/ 
@@ -6025,10 +6027,12 @@ c
       integer*4 snr(nn), rnr(nn1)
       integer*4 iflag(10),ha(iha,11)
       aflag(1)=16
-      aflag(2)=1.0e-50
+c     1.0e-50 / 1.0e-90 below were single-precision literals that
+c     underflowed to 0.0: that value is kept, written explicitly
+      aflag(2)=0d0
 c	aflag(2)=1.0e-24
       aflag(3)=1.0e16
-      aflag(4)=1.0e-90
+      aflag(4)=0d0
 c	come era originariamente
 c	aflag(4)=1.0e-24
       iflag(2)=3
