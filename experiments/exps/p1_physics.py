@@ -13,8 +13,8 @@ evaluated on each backend, plus CPU vs GPU agreement of every curve.
   phys_iv                 I(Vds = 0) = 0, |I| monotonic in Vds, I falling
                           as a barrier is raised (CNT and GNR)
 
-Tolerances CPU vs GPU: 1e-7, and 1e-5 for phys_ballistic (its H-path
-ribbon uses eigen on the CPU and decimation on the GPU).
+Tolerances CPU vs GPU: 1e-7, and 1e-6 for phys_ballistic (eta = 1e-8:
+eigen on both sides for the H-path ribbon, decimation for the GNR).
 """
 
 import _simexp as X
@@ -24,7 +24,7 @@ __doc__ += X.__doc__
 ID = "P1"
 TITLE = "Device physics laws on CPU and GPU"
 KIND = "correctness"
-SCEN = [("phys_ballistic", 1e-5, (3, 7)), ("phys_shift_reciprocity", 1e-7, (10, 23)),
+SCEN = [("phys_ballistic", 1e-6, (6, 7)), ("phys_shift_reciprocity", 1e-7, (10, 23)),
         ("phys_neutral", 1e-7, (7, 7)), ("phys_iv", 1e-7, (20, 35))]
 
 

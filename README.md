@@ -200,7 +200,8 @@ the driver (`src/vides_rgf_batch.c`) uses the CPU cores at the same time:
   self-energy) spread energies over all cores. Each energy runs exactly
   the stock scalar code into its own output slot, so the results are
   bit-identical to the serial ones for any thread count (checked in C4
-  and S4: difference exactly 0). LAPACK is compiled with `-frecursive`
+  and S4: difference exactly 0). The bundled LAPACK is compiled with `-frecursive` (only it: the nanowire
+  builders keep their large static arrays)
   and the first energy of the first parallel call runs alone, so its
   one-time initialisation cannot race.
 - **Hybrid split.** Each batch is divided between the GPU, running on a

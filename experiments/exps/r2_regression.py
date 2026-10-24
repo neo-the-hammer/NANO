@@ -17,8 +17,10 @@ before the GPU code existed.
   reg_hole            test/test_hole.py              a vacancy built two ways
 
 Tolerances CPU vs GPU: 1e-8 where both use the eigen self-energy (eta <
-1e-6), 1e-7 with GPU decimation, 1e-5 where the methods differ (bilayer,
-eta 1e-5).
+1e-6), 1e-7 with GPU decimation.  reg_bilayer: 5e-5, the original test's
+own tolerance against its stored charges, since there CPU (eigen) and GPU
+(decimation) use different self-energy methods at eta = 1e-5 and the
+alternating +-0.1 V case puts band edges inside the window (T4: 1.5e-5).
 """
 
 import _simexp as X
@@ -29,7 +31,7 @@ ID = "R2"
 TITLE = "Original regression tests (test/) vs stored references"
 KIND = "correctness"
 SCEN = [("reg_gnr_fast_ohmic", 1e-7, (1, 1)), ("reg_graphene", 1e-8, (13, 13)),
-        ("reg_bilayer", 1e-5, (20, 20)), ("reg_snw", 1e-7, (5, 26)),
+        ("reg_bilayer", 5e-5, (30, 30)), ("reg_snw", 1e-7, (5, 26)),
         ("reg_zincblend", 1e-7, (10, 10)), ("reg_hole", 1e-6, (1, 1))]
 
 

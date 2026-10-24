@@ -641,7 +641,7 @@ def reg_hole(quick):
 GRID = [-1.5025, 1.5025, 0.005]     # symmetric, no point exactly at E = 0
 
 
-def _flat(kind, size, Phi=None):
+def _flat(kind, size, Phi=None, eta=None):
     V = load()
     if kind == "cnt":
         d = V.nanotube(*size)
@@ -653,6 +653,8 @@ def _flat(kind, size, Phi=None):
         d.H = GNR(*size)
         d.eta = 1e-5
     d.Elower, d.Eupper, d.dE = GRID
+    if eta is not None:
+        d.eta = eta
     if Phi is not None:
         d.Phi = Phi(d)
     d.charge_T()
@@ -668,14 +670,18 @@ def phys_ballistic(quick):
     """Perfect, flat-band wires (Phi = 0): the transmission is the number
     of open modes, an integer, and the nearest-neighbour pz lattice is
     bipartite, so T(E) = T(-E).  CNT (13,0), GNR n=7 and the 5-wide
-    ribbon through the Hamiltonian path.  Points within 25 meV of a
+    ribbon through the Hamiltonian path, at eta = 1e-8.  Points within 25 meV of a
     subband edge (where T jumps) are excluded from the integer test."""
     # (25 meV: the T4 run showed ~3e-3 deviations right next to the edges
     # on both backends alike, i.e. eta broadening, not the GPU)
     out = {"series": {}, "x": {}, "scalars": {}, "laws": {}}
     L = 3.0 if quick else 6.0
     for kind, size in (("cnt", (13, L)), ("gnr", (7, L)), ("hamiltonian", (5, 24 if quick else 48))):
-        d = _flat(kind, size)
+        # eta = 1e-8: the broadening is also an absorption inside the
+        # device, which lowers T by ~ eta * length / velocity -- at the
+        # default 1e-5 that is 1e-3 near the band edges (T4 run), and the
+        # "T is an integer" law only holds as eta -> 0.
+        d = _flat(kind, size, eta=1e-8)
         E, T = _ET(d)
         out = merge(out, dev_result(d, kind, nch=d.n, equilibrium=True))
         Tr = np.round(T)
