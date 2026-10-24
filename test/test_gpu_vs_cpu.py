@@ -79,7 +79,8 @@ def _hamiltonian(biased, offgrid=False):
         d.Elower, d.Eupper, d.dE = -2.99, 2.99, 0.02
     else:
         d.Elower, d.Eupper, d.dE = -3.0, 3.0, 0.02
-    d.eta = 1e-5
+    # VIDES_TEST_ETA_SCALE perturbs eta for the conditioning check below.
+    d.eta = 1e-5 * float(os.environ.get("VIDES_TEST_ETA_SCALE", "1"))
     if biased:
         d.Phi = -0.2 * np.ones(d.n * d.Nc)
         d.mu2 = -0.3
@@ -154,10 +155,11 @@ def worker(name, outfile):
              gpu=np.array([1 if os.environ.get("VIDES_GPU", "1") != "0" else 0]))
 
 
-def run_backend(name, use_gpu, outfile):
+def run_backend(name, use_gpu, outfile, extra=None):
     env = dict(os.environ)
     env["VIDES_GPU"] = "1" if use_gpu else "0"
     env.update(CASE_ENV.get(name, {}))
+    env.update(extra or {})
     env["PYTHONPATH"] = os.pathsep.join(
         p for p in [os.getcwd(), env.get("PYTHONPATH", "")] if p)
     proc = subprocess.run(
@@ -253,11 +255,26 @@ def main():
             k = int(dT.argmax())
             print("  worst T point: E = %+.6f eV  (T_cpu = %.6g, T_gpu = %.6g)"
                   % (cpu["E"][k], cpu["T"][k], gpu["T"][k]))
-        if worst > args.rtol:
-            if name in DIAGNOSTIC_ONLY:
-                print("  (diagnostic case: not counted as a failure)")
-            else:
-                failures.append(name)
+        if name in DIAGNOSTIC_ONLY:
+            # How well posed is this problem at all?  Re-run the CPU with
+            # eta changed by one part in 1e9.  A well-conditioned result
+            # moves by ~1e-9 relative; if the CPU moves as much as the GPU
+            # differs, the CPU-GPU gap is the problem's conditioning (an
+            # energy point on a resonance where the LDOS ~ 1/eta), not a
+            # GPU error.
+            pert_out = os.path.join(tmp, name + "_cpu_pert.npz")
+            run_backend(name, False, pert_out, {"VIDES_TEST_ETA_SCALE": repr(1 + 1e-9)})
+            pert = np.load(pert_out)
+            for key in ("charge", "T"):
+                a_c, r_c, _ = deviation(cpu[key], pert[key])
+                a_g, r_g, _ = deviation(cpu[key], gpu[key])
+                print("  %-7s CPU vs CPU(eta x (1+1e-9)): max|d| = %-10.3g   CPU vs GPU: max|d| = %-10.3g  %s"
+                      % (key, a_c, a_g, "GPU within the problem's own sensitivity"
+                         if a_g <= 10 * a_c + 1e-15 else "GPU beyond it"))
+            print("  (diagnostic case: an energy point sits on a near-singular resonance;"
+                  " not counted as a failure)")
+        elif worst > args.rtol:
+            failures.append(name)
 
     print("=" * 68)
     if skipped:
