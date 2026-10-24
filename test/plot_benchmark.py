@@ -62,7 +62,7 @@ def style(ax):
     for side in ("top", "right", "left"):
         ax.spines[side].set_visible(False)
     ax.spines["bottom"].set_color(AXIS)
-    ax.tick_params(colors=MUTED, labelsize=8, length=0)
+    ax.tick_params(which="both", colors=MUTED, labelsize=8, length=0)
     ax.grid(axis="y", color=GRID, linewidth=0.8)
     ax.set_axisbelow(True)
 
@@ -94,8 +94,11 @@ def main():
 
     ncol = len(paths)
     fig, axes = plt.subplots(
-        2, ncol, figsize=(4.2 * ncol + 0.6, 7.2), squeeze=False,
-        gridspec_kw={"height_ratios": [3, 2], "hspace": 0.55, "wspace": 0.28})
+        2, ncol, figsize=(4.2 * ncol + 0.6, 6.6), squeeze=False,
+        gridspec_kw={"height_ratios": [3, 2], "hspace": 0.38, "wspace": 0.28})
+    # Header band (title, subtitle, legend) gets its own space above the
+    # panels, so it can never overlap the panel titles.
+    fig.subplots_adjust(top=0.80, bottom=0.09, left=0.07, right=0.98)
     fig.patch.set_facecolor(SURFACE)
 
     # Shared time scale across columns so paths compare honestly.
@@ -133,14 +136,22 @@ def main():
                 label="GPU, steady state", zorder=3)
 
         # Direct labels at the largest device only, in ink not series colour.
-        for val, dy in ((cpu[-1], 1), (gpu[-1], -1)):
-            ax.annotate(fmt_time(val), (x[-1], val), xytext=(8, 4 * dy),
-                        textcoords="offset points", fontsize=8, color=INK_2,
-                        va="center")
+        # The larger value goes above, the smaller below; when the two are
+        # within 40% (they overlap on a log axis) one label says so.
+        hi, lo = max(cpu[-1], gpu[-1]), min(cpu[-1], gpu[-1])
+        if hi / lo < 1.4:
+            ax.annotate("CPU %s\nGPU %s" % (fmt_time(cpu[-1]), fmt_time(gpu[-1])),
+                        (x[-1], hi), xytext=(9, 0), textcoords="offset points",
+                        fontsize=8, color=INK_2, va="center")
+        else:
+            for val, dy in ((hi, 6), (lo, -6)):
+                ax.annotate(fmt_time(val), (x[-1], val), xytext=(9, dy),
+                            textcoords="offset points", fontsize=8, color=INK_2,
+                            va="center")
 
         ax.set_xticks(x)
         ax.set_xticklabels(labels)
-        ax.set_xlim(-0.4, len(pr) - 0.4 + 0.5)
+        ax.set_xlim(-0.4, len(pr) - 0.4 + 0.6)
         ax.set_title(PATH_TITLES.get(path, path), loc="left", fontsize=11,
                      color=INK, pad=10)
         if c == 0:
@@ -153,9 +164,6 @@ def main():
         bars = ax.bar(x, sp, width=0.55, color=GPU_C, edgecolor=SURFACE,
                       linewidth=2, zorder=2)
         ax.axhline(1.0, color=INK_2, linewidth=1, zorder=3)
-        ax.annotate("1x  (no gain)", (len(pr) - 0.4 + 0.45, 1.0),
-                    xytext=(0, 4), textcoords="offset points",
-                    fontsize=7.5, color=MUTED, ha="right", va="bottom")
         for b, v in zip(bars, sp):
             ax.annotate("%.1fx" % v, (b.get_x() + b.get_width() / 2, v),
                         xytext=(0, 3), textcoords="offset points",
@@ -164,25 +172,25 @@ def main():
         ax.yaxis.set_major_formatter(FuncFormatter(lambda v, _p: "%gx" % v))
         ax.set_xticks(x)
         ax.set_xticklabels(labels)
-        ax.set_xlim(-0.4, len(pr) - 0.4 + 0.5)
+        ax.set_xlim(-0.6, len(pr) - 0.4)
         if c == 0:
-            ax.set_ylabel("speedup (CPU / GPU)", fontsize=9, color=INK_2)
+            ax.set_ylabel("speedup (CPU / GPU)\nline: 1x = no gain", fontsize=9, color=INK_2)
 
     # One legend for the time row, above the charts.
     handles, labels_ = axes[0][0].get_legend_handles_labels()
     order = [labels_.index(l) for l in ("CPU", "GPU, steady state", "GPU, first call")]
     fig.legend([handles[i] for i in order], [labels_[i] for i in order],
-               loc="upper left", bbox_to_anchor=(0.06, 0.935), ncol=3,
+               loc="upper left", bbox_to_anchor=(0.06, 0.905), ncol=3,
                frameon=False, fontsize=9, labelcolor=INK_2,
                handlelength=2.6)
 
     backend = data.get("backend", "").replace("NEGF backend:", "").strip()
     fig.suptitle("NanoTCAD ViDES NEGF solve: CPU vs GPU",
-                 x=0.06, y=0.995, ha="left", fontsize=13, color=INK)
+                 x=0.06, y=0.985, ha="left", fontsize=13, color=INK)
     sub = "Devices ordered by work per solve (energy points x blocks x n^3)."
     if backend:
         sub = "GPU: %s.  %s" % (backend, sub)
-    fig.text(0.06, 0.955, sub, fontsize=8.5, color=MUTED, ha="left")
+    fig.text(0.06, 0.935, sub, fontsize=8.5, color=MUTED, ha="left")
 
     fig.savefig(args.out, dpi=160, facecolor=SURFACE, bbox_inches="tight")
     print("saved %s" % args.out)
