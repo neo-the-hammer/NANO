@@ -9,6 +9,15 @@
  *   vides_native rgf   VARIANT n Nc NB eta reps      VARIANT = std|lake|mode
  *   vides_native decim CELL n NB eta reps            CELL = gnr|hsrc|hdrn
  *   vides_native selfh LEAD n NE eta kind            LEAD = src|drn, kind = gnr|random
+ *   vides_native modes VARIANT n Nc NB eta reps      every execution mode of the solver:
+ *                                                    CPU 1 thread, CPU all threads,
+ *                                                    GPU only, CPU+GPU hybrid
+ *   vides_native dmodes CELL n NB eta reps           the same for the decimation
+ *   vides_native threads KIND n Nc NB eta T1,T2,..   CPU time vs thread count,
+ *                                                    KIND = rgf|decim|selfh
+ *   vides_native calls VARIANT n Nc NB ncalls        many small GPU calls in a row
+ *                                                    (per-call overhead; run with
+ *                                                    VIDES_GPU_POOL=0/1)
  *
  * All inputs are generated deterministically, so a run is reproducible.
  * When no GPU is usable, GPU fields are null.
@@ -17,6 +26,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <unistd.h>
 #include "vides_rgf_batch.h"
 #include "cmatrix.h"
 #include "cfree_cmatrix.h"
@@ -285,20 +295,255 @@ static int cmd_selfh(int argc, char **argv)
   return 0;
 }
 
+/* ---- execution modes ------------------------------------------------ */
+
+static double maxabs_diff(const double *a, const double *b, size_t N)
+{ double m = 0; size_t i; for (i = 0; i < N; i++) { double d = fabs(a[i] - b[i]); if (d > m) m = d; } return m; }
+
+/* Solve NB energies through the dispatcher, in the chunks an entry point
+   would use (so the GPU batch limit is respected). */
+static int dispatch_all(vides_rgf_desc *d, int NB, int chunk, double *E, complex ***D, complex ***U,
+                        complex ***L, complex ***SS, complex ***SD, double *A1, double *A2, double *T, int nout)
+{
+  int s0;
+  for (s0 = 0; s0 < NB; s0 += chunk) {
+    vides_rgf_desc dc = *d;
+    size_t off = (size_t)s0 * d->Nc * nout;
+    dc.NB = NB - s0 < chunk ? NB - s0 : chunk;
+    if (vides_rgf_batch(&dc, E + s0, D, U, L, SS + s0, SD + s0, A1 + off, A2 + off, T + s0)) return 1;
+  }
+  return 0;
+}
+
+static int cmd_modes(int argc, char **argv)
+{
+  const char *var = argv[2];
+  int n = atoi(argv[3]), Nc = atoi(argv[4]), NB = atoi(argv[5]), reps = atoi(argv[7]);
+  double eta = atof(argv[6]);
+  int variant = !strcmp(var, "lake") ? VIDES_RGF_LAKE : !strcmp(var, "mode") ? VIDES_RGF_MODE : VIDES_RGF_STD;
+  int Nreal = variant == VIDES_RGF_MODE ? 2 * n : 0, nout = Nreal ? Nreal : n, b, r, gpu, chunk;
+  int nt = vides_cpu_threads();
+  int *order = malloc((size_t)n * sizeof(int));
+  complex ***D = blocks(Nc, n), ***U = blocks(Nc, n), ***L = blocks(Nc, n), ***SS, ***SD;
+  double *E = malloc((size_t)NB * sizeof(double));
+  size_t NA = (size_t)NB * Nc * nout;
+  double *A1s = calloc(NA, 8), *A2s = calloc(NA, 8), *Ts = calloc(NB, 8);
+  double *A1t = calloc(NA, 8), *A2t = calloc(NA, 8), *Tt = calloc(NB, 8);
+  double *A1g = calloc(NA, 8), *A2g = calloc(NA, 8), *Tg = calloc(NB, 8);
+  double *A1h = calloc(NA, 8), *A2h = calloc(NA, 8), *Th = calloc(NB, 8);
+  double t1, tN, tg = NAN, th = NAN, th_first = NAN, t0, share = -1, dt;
+  vides_rgf_desc d;
+  (void)argc;
+
+  for (b = 0; b < n; b++) order[b] = b;
+  random_chain(n, Nc, D, U, L);
+  SS = random_sigmas(NB, n); SD = random_sigmas(NB, n);
+  for (b = 0; b < NB; b++) E[b] = -2.0 + 4.0 * (b + 0.5) / NB;
+  memset(&d, 0, sizeof d);
+  d.n = n; d.Nc = Nc; d.NB = NB; d.variant = variant; d.flagtrans = 1;
+  d.eta = eta; d.Nreal = Nreal; d.order = order;
+
+  vides_set_cpu_threads(1);
+  t0 = vides_now(); vides_rgf_batch_cpu(&d, E, D, U, L, SS, SD, A1s, A2s, Ts); t1 = vides_now() - t0;
+  vides_set_cpu_threads(nt);
+  t0 = vides_now(); vides_rgf_batch_cpu(&d, E, D, U, L, SS, SD, A1t, A2t, Tt); tN = vides_now() - t0;
+
+  gpu = vides_gpu_available();
+  chunk = gpu ? vides_negf_chunk(&d) : NB;
+  if (chunk < 1) chunk = 1;
+  if (gpu) {
+    setenv("VIDES_HYBRID", "0", 1);
+    for (r = 0; r < (reps < 1 ? 1 : reps) + 1; r++) {
+      t0 = vides_now();
+      if (dispatch_all(&d, NB, chunk, E, D, U, L, SS, SD, A1g, A2g, Tg, nout)) { printf("{\"error\": \"gpu failed\"}\n"); return 1; }
+      dt = vides_now() - t0;
+      if (r > 0 && (isnan(tg) || dt < tg)) tg = dt;
+    }
+    setenv("VIDES_HYBRID", "1", 1);
+    /* The split adapts from call to call: report the first call and the
+       best of the later ones. */
+    for (r = 0; r < (reps < 1 ? 1 : reps) + 2; r++) {
+      t0 = vides_now();
+      if (dispatch_all(&d, NB, chunk, E, D, U, L, SS, SD, A1h, A2h, Th, nout)) { printf("{\"error\": \"hybrid failed\"}\n"); return 1; }
+      dt = vides_now() - t0;
+      if (r == 0) th_first = dt; else if (isnan(th) || dt < th) th = dt;
+    }
+    share = vides_hybrid_cpu_share(0, n, Nc);
+  }
+
+  printf("{\"cmd\": \"modes\", \"variant\": \"%s\", \"n\": %d, \"Nc\": %d, \"NB\": %d, \"threads\": %d, \"chunk\": %d, ",
+         var, n, Nc, NB, nt, chunk);
+  jnum("eta", eta, 1); printf("\"gpu\": %s, ", gpu ? "true" : "false");
+  jnum("t_cpu1", t1, 1); jnum("t_cpuN", tN, 1); jnum("t_gpu", tg, 1);
+  jnum("t_hybrid_first", th_first, 1); jnum("t_hybrid", th, 1); jnum("cpu_share", share, 1);
+  /* Threads run the same scalar code per energy: expected exactly 0. */
+  jnum("threads_maxabs", fmax(maxabs_diff(A1s, A1t, NA), fmax(maxabs_diff(A2s, A2t, NA), maxabs_diff(Ts, Tt, NB))), 1);
+  if (gpu) {
+    jdiff("gpu_A1", dcompare(A1s, A1g, NA), 1); jdiff("gpu_T", dcompare(Ts, Tg, NB), 1);
+    jdiff("hyb_A1", dcompare(A1s, A1h, NA), 1); jdiff("hyb_A2", dcompare(A2s, A2h, NA), 1);
+    jdiff("hyb_T", dcompare(Ts, Th, NB), 0);
+  } else printf("\"cpu_only\": true");
+  printf("}\n");
+  return 0;
+}
+
+static int cmd_dmodes(int argc, char **argv)
+{
+  const char *cell = argv[2];
+  int n = atoi(argv[3]), NB = atoi(argv[4]), reps = atoi(argv[6]), M = 4 * n, b, r, gpu;
+  int nt = vides_cpu_threads();
+  double eta = atof(argv[5]), t1, tN, tg = NAN, th = NAN, th_first = NAN, t0, dt, share = -1;
+  double dthr = 0, dg = 0, dh = 0;
+  complex **W0 = cmatrix(0, M-1, 0, M-1), **B = cmatrix(0, M-1, 0, M-1), **BD = cmatrix(0, M-1, 0, M-1);
+  complex ***s1 = malloc((size_t)NB * sizeof *s1), ***sN = malloc((size_t)NB * sizeof *sN);
+  complex ***sg = malloc((size_t)NB * sizeof *sg), ***sh = malloc((size_t)NB * sizeof *sh);
+  double *E = malloc((size_t)NB * 8);
+  (void)argc;
+
+  make_cell(cell, n, W0, B, BD);
+  for (b = 0; b < NB; b++) { E[b] = -2.5 + 5.0 * (b + 0.5) / NB;
+    s1[b] = cmatrix(0, n-1, 0, n-1); sN[b] = cmatrix(0, n-1, 0, n-1); }
+  vides_set_cpu_threads(1);
+  t0 = vides_now(); vides_decimation_batch_cpu(M, NB, E, eta, W0, B, BD, 3*n, n, s1); t1 = vides_now() - t0;
+  vides_set_cpu_threads(nt);
+  t0 = vides_now(); vides_decimation_batch_cpu(M, NB, E, eta, W0, B, BD, 3*n, n, sN); tN = vides_now() - t0;
+  for (b = 0; b < NB; b++) { double x = cdiff(s1[b], sN[b], n); if (x > dthr) dthr = x; }
+
+  gpu = vides_gpu_available();
+  if (gpu) {
+    setenv("VIDES_HYBRID", "0", 1);
+    for (r = 0; r < (reps < 1 ? 1 : reps) + 1; r++) {
+      t0 = vides_now(); vides_decimation_batch(M, NB, E, eta, W0, B, BD, 3*n, n, sg); dt = vides_now() - t0;
+      if (r > 0 && (isnan(tg) || dt < tg)) tg = dt;
+      if (r < reps) for (b = 0; b < NB; b++) cfree_cmatrix(sg[b], 0, n-1, 0, n-1);
+    }
+    setenv("VIDES_HYBRID", "1", 1);
+    for (r = 0; r < (reps < 1 ? 1 : reps) + 2; r++) {
+      t0 = vides_now(); vides_decimation_batch(M, NB, E, eta, W0, B, BD, 3*n, n, sh); dt = vides_now() - t0;
+      if (r == 0) th_first = dt; else if (isnan(th) || dt < th) th = dt;
+      if (r < reps + 1) for (b = 0; b < NB; b++) cfree_cmatrix(sh[b], 0, n-1, 0, n-1);
+    }
+    share = vides_hybrid_cpu_share(1, M, 0);
+    for (b = 0; b < NB; b++) {
+      double x = cdiff(s1[b], sg[b], n), y = cdiff(s1[b], sh[b], n);
+      if (x > dg) dg = x; if (y > dh) dh = y;
+    }
+  }
+  printf("{\"cmd\": \"dmodes\", \"cell\": \"%s\", \"n\": %d, \"NB\": %d, \"threads\": %d, ", cell, n, NB, nt);
+  jnum("eta", eta, 1); printf("\"gpu\": %s, ", gpu ? "true" : "false");
+  jnum("t_cpu1", t1, 1); jnum("t_cpuN", tN, 1); jnum("t_gpu", tg, 1);
+  jnum("t_hybrid_first", th_first, 1); jnum("t_hybrid", th, 1); jnum("cpu_share", share, 1);
+  jnum("threads_maxdiff", dthr, 1); jnum("gpu_rel_diff", gpu ? dg : NAN, 1); jnum("hyb_rel_diff", gpu ? dh : NAN, 0);
+  printf("}\n");
+  return 0;
+}
+
+static int cmd_threads(int argc, char **argv)
+{
+  const char *kind = argv[2];
+  int n = atoi(argv[3]), Nc = atoi(argv[4]), NB = atoi(argv[5]), b, k, ntl = 0, tl[64];
+  double eta = atof(argv[6]), tt[64], t0, maxd = 0;
+  char *list = strdup(argv[7]), *tok;
+  (void)argc;
+  for (tok = strtok(list, ","); tok && ntl < 64; tok = strtok(NULL, ",")) tl[ntl++] = atoi(tok);
+
+  if (!strcmp(kind, "rgf")) {
+    complex ***D = blocks(Nc, n), ***U = blocks(Nc, n), ***L = blocks(Nc, n), ***SS, ***SD;
+    double *E = malloc((size_t)NB * 8), *A1 = calloc((size_t)NB * Nc * n, 8), *A2 = calloc((size_t)NB * Nc * n, 8);
+    double *T = calloc(NB, 8), *A1r = calloc((size_t)NB * Nc * n, 8), *A2r = calloc((size_t)NB * Nc * n, 8), *Tr = calloc(NB, 8);
+    vides_rgf_desc d;
+    random_chain(n, Nc, D, U, L); SS = random_sigmas(NB, n); SD = random_sigmas(NB, n);
+    for (b = 0; b < NB; b++) E[b] = -2.0 + 4.0 * (b + 0.5) / NB;
+    memset(&d, 0, sizeof d); d.n = n; d.Nc = Nc; d.NB = NB; d.variant = VIDES_RGF_STD; d.flagtrans = 1; d.eta = eta;
+    for (k = 0; k < ntl; k++) {
+      vides_set_cpu_threads(tl[k]);
+      t0 = vides_now(); vides_rgf_batch_cpu(&d, E, D, U, L, SS, SD, k ? A1 : A1r, k ? A2 : A2r, k ? T : Tr); tt[k] = vides_now() - t0;
+      if (k) maxd = fmax(maxd, fmax(maxabs_diff(A1, A1r, (size_t)NB * Nc * n), maxabs_diff(T, Tr, NB)));
+    }
+  } else if (!strcmp(kind, "decim")) {
+    int M = 4 * n;
+    complex **W0 = cmatrix(0, M-1, 0, M-1), **B = cmatrix(0, M-1, 0, M-1), **BD = cmatrix(0, M-1, 0, M-1);
+    complex ***o = malloc((size_t)NB * sizeof *o), ***r = malloc((size_t)NB * sizeof *r);
+    double *E = malloc((size_t)NB * 8);
+    make_cell("hsrc", n, W0, B, BD);
+    for (b = 0; b < NB; b++) { E[b] = -2.5 + 5.0 * (b + 0.5) / NB; o[b] = cmatrix(0, n-1, 0, n-1); r[b] = cmatrix(0, n-1, 0, n-1); }
+    for (k = 0; k < ntl; k++) {
+      vides_set_cpu_threads(tl[k]);
+      t0 = vides_now(); vides_decimation_batch_cpu(M, NB, E, eta, W0, B, BD, 3*n, n, k ? o : r); tt[k] = vides_now() - t0;
+      if (k) for (b = 0; b < NB; b++) maxd = fmax(maxd, cdiff(o[b], r[b], n));
+    }
+  } else {
+    int Ncl = 13;
+    complex ***D = blocks(Ncl, n), ***U = blocks(Ncl, n), ***L = blocks(Ncl, n);
+    complex ***o = malloc((size_t)NB * sizeof *o), ***r = malloc((size_t)NB * sizeof *r);
+    double *E = malloc((size_t)NB * 8);
+    random_chain(n, Ncl, D, U, L);
+    for (b = 0; b < NB; b++) E[b] = -2.5 + 5.0 * (b + 0.5) / NB;
+    for (k = 0; k < ntl; k++) {
+      vides_set_cpu_threads(tl[k]);
+      t0 = vides_now(); vides_selfH_new_batch(NB, E, D, U, L, n, Ncl, 0, eta, k ? o : r); tt[k] = vides_now() - t0;
+      if (k) for (b = 0; b < NB; b++) { maxd = fmax(maxd, cdiff(o[b], r[b], n)); cfree_cmatrix(o[b], 0, n-1, 0, n-1); }
+    }
+  }
+  printf("{\"cmd\": \"threads\", \"kind\": \"%s\", \"n\": %d, \"Nc\": %d, \"NB\": %d, \"online\": %ld, ", kind, n, Nc, NB,
+         (long)sysconf(_SC_NPROCESSORS_ONLN));
+  printf("\"thread_counts\": ["); for (k = 0; k < ntl; k++) printf("%s%d", k ? ", " : "", tl[k]); printf("], ");
+  jarr("t", tt, ntl, 1); jnum("maxdiff_vs_1", maxd, 0);
+  printf("}\n");
+  return 0;
+}
+
+static int cmd_calls(int argc, char **argv)
+{
+  const char *var = argv[2];
+  int n = atoi(argv[3]), Nc = atoi(argv[4]), NB = atoi(argv[5]), ncalls = atoi(argv[6]), b, c, gpu;
+  int variant = !strcmp(var, "lake") ? VIDES_RGF_LAKE : VIDES_RGF_STD;
+  complex ***D = blocks(Nc, n), ***U = blocks(Nc, n), ***L = blocks(Nc, n), ***SS, ***SD;
+  double *E = malloc((size_t)NB * 8), *A1 = calloc((size_t)NB * Nc * n, 8), *A2 = calloc((size_t)NB * Nc * n, 8), *T = calloc(NB, 8);
+  double t0, tfirst = NAN, tsum = 0, tcpu;
+  vides_rgf_desc d;
+  const char *pool = getenv("VIDES_GPU_POOL");
+  (void)argc;
+  random_chain(n, Nc, D, U, L); SS = random_sigmas(NB, n); SD = random_sigmas(NB, n);
+  for (b = 0; b < NB; b++) E[b] = -2.0 + 4.0 * (b + 0.5) / NB;
+  memset(&d, 0, sizeof d); d.n = n; d.Nc = Nc; d.NB = NB; d.variant = variant; d.flagtrans = 1; d.eta = 1e-5;
+  t0 = vides_now(); for (c = 0; c < ncalls; c++) vides_rgf_batch_cpu(&d, E, D, U, L, SS, SD, A1, A2, T); tcpu = (vides_now() - t0) / ncalls;
+  gpu = vides_gpu_available();
+  if (gpu) for (c = 0; c <= ncalls; c++) {
+    t0 = vides_now();
+    if (vides_rgf_batch_gpu(&d, E, D, U, L, SS, SD, A1, A2, T)) { printf("{\"error\": \"gpu failed\"}\n"); return 1; }
+    if (c == 0) tfirst = vides_now() - t0; else tsum += vides_now() - t0;
+  }
+  printf("{\"cmd\": \"calls\", \"variant\": \"%s\", \"n\": %d, \"Nc\": %d, \"NB\": %d, \"ncalls\": %d, \"pool\": %s, ",
+         var, n, Nc, NB, ncalls, (pool && pool[0] == '0') ? "false" : "true");
+  printf("\"gpu\": %s, ", gpu ? "true" : "false");
+  jnum("t_cpu_per_call", tcpu, 1); jnum("t_gpu_first", tfirst, 1); jnum("t_gpu_per_call", gpu ? tsum / ncalls : NAN, 0);
+  printf("}\n");
+  return 0;
+}
+
 int main(int argc, char **argv)
 {
   if (argc >= 8 && !strcmp(argv[1], "rgf"))   return cmd_rgf(argc, argv);
   if (argc >= 7 && !strcmp(argv[1], "decim")) return cmd_decim(argc, argv);
   if (argc >= 7 && !strcmp(argv[1], "selfh")) return cmd_selfh(argc, argv);
+  if (argc >= 8 && !strcmp(argv[1], "modes"))   return cmd_modes(argc, argv);
+  if (argc >= 7 && !strcmp(argv[1], "dmodes"))  return cmd_dmodes(argc, argv);
+  if (argc >= 8 && !strcmp(argv[1], "threads")) return cmd_threads(argc, argv);
+  if (argc >= 7 && !strcmp(argv[1], "calls"))   return cmd_calls(argc, argv);
   if (argc >= 2 && !strcmp(argv[1], "info")) {
-    printf("{\"cmd\": \"info\", \"gpu\": %s, \"backend\": \"%s\"}\n",
-           vides_gpu_available() ? "true" : "false", vides_gpu_describe());
+    printf("{\"cmd\": \"info\", \"gpu\": %s, \"backend\": \"%s\", \"threads\": %d}\n",
+           vides_gpu_available() ? "true" : "false", vides_gpu_describe(), vides_cpu_threads());
     return 0;
   }
   fprintf(stderr,
     "usage: vides_native rgf   std|lake|mode n Nc NB eta reps\n"
     "       vides_native decim gnr|hsrc|hdrn n NB eta reps\n"
     "       vides_native selfh src|drn n NE eta gnr|random\n"
+    "       vides_native modes std|lake|mode n Nc NB eta reps\n"
+    "       vides_native dmodes gnr|hsrc|hdrn n NB eta reps\n"
+    "       vides_native threads rgf|decim|selfh n Nc NB eta T1,T2,...\n"
+    "       vides_native calls std|lake n Nc NB ncalls\n"
     "       vides_native info\n");
   return 2;
 }

@@ -46,6 +46,11 @@ every table and every figure in one page.
 | S1 | speed | The NEGF solver: time and speedup vs block size n, number of blocks Nc and energies per batch NB. |
 | S2 | speed | The self-energy: time per energy of eigen (CPU), decimation (CPU) and decimation (GPU), vs lead size and batch size. |
 | S3 | speed | Whole devices, CPU vs GPU, with each solve split into self-energy, NEGF solve and the rest. |
+| C4 | correctness | Every concurrent execution mode against the serial CPU: CPU threads (must be bit-identical), hybrid CPU+GPU split and GPU only, on the solver, the decimation and C3's devices. |
+| S4 | speed | CPU thread scaling (1, 2, 4, ... cores) of the solver, the decimation and the eigen self-energy, with a check that every thread count gives exactly the 1-thread result. |
+| S5 | speed | One batch four ways, over problem size: CPU 1 thread, CPU all threads, GPU only, hybrid split (with the adapted CPU share and the ideal co-execution time). |
+| S6 | speed | Time per call for many short GPU calls in a row, with and without the device memory pool. |
+| S7 | speed | Whole devices (every path, both self-energy regimes, a k-summed graphene structure) in every execution mode: speedup of the proposed method over the stock CPU and over GPU only, and its difference from the stock result. |
 | R1 | correctness | The tutorials in `demo/` run as real simulations on each backend: CNT, GNR, generic Hamiltonian, Laplace + NEGF CNT FET, Poisson-NEGF self-consistent CNT (mode space) and GNR (Schottky contacts) FETs, an Id(Vgs) sweep and a 2D graphene FET Id(Vds) (reduced). Compares every curve and checks the physics (0 ≤ T ≤ channels, current rising with the gate, subthreshold swing ≥ 60 mV/dec). |
 | R2 | correctness | The regression tests behind `test/test.py`, each against the reference data stored in `test/` with the original tolerance, on the CPU and on the GPU: GNR path vs Hamiltonian path, graphene summed over k (`g0.dat`, `g.dat`), bilayer graphene (`carica.*`), sp3d5s* silicon nanowires (`transmission-test-Si*.dat`), sp3d5s* Si/Ge/InAs, a vacancy built two ways. |
 | P1 | correctness | Physics laws with known answers, on each backend: integer T and T(E) = T(-E) at flat band, rigid band shift under a uniform potential, reciprocity under a mirrored potential, charge neutrality, I(0) = 0, monotonic I(Vds), current falling with barrier height. |
@@ -102,6 +107,12 @@ lead equation equally well.
   one process with identical deterministic inputs. `run_all.py` compiles
   it and links it against the objects `make` left in `src/`, so it runs
   exactly the code the Python module runs.
+- Execution modes are environment variables of the worker processes
+  (`common.MODES`): `cpu1` = `VIDES_GPU=0 VIDES_THREADS=1` (stock),
+  `cpuN` = `VIDES_GPU=0`, `gpu` = `VIDES_HYBRID=0 VIDES_PIPELINE=0
+  VIDES_GPU_POOL=0`, `hybrid` = the defaults. C3, S3 and R1-P1 use the
+  defaults, so their CPU side is multi-threaded and their GPU side is the
+  hybrid method.
 - `sims.py` holds the scenarios of R1, R2 and P1; `sim_worker.py` runs one
   in a scratch directory and counts every NEGF solve.
 - `worker.py` runs one device through the Python API; each backend gets

@@ -178,12 +178,49 @@ of energy points; for a very small device the CPU may still win.
 | `VIDES_GPU=0` | Force the CPU path even on a GPU build |
 | `VIDES_GPU_BATCH=N` | Cap the number of energies per batch |
 | `VIDES_SELFH=eig` / `dec` | Hamiltonian path: eigen-method or decimation contact self-energy (default: `dec` on the GPU when `eta >= 1e-6`, otherwise `eig`) |
-| `VIDES_PROFILE=1` | Print a per-call split: self-energy time, NEGF solve time, the rest |
+| `VIDES_PROFILE=1` | Print a per-call split: self-energy time, NEGF solve time, the rest (`2` also prints every hybrid split) |
+| `VIDES_THREADS=N` | CPU worker threads (default: all online cores; `1` = the stock serial path) |
+| `VIDES_HYBRID=0` | GPU only: do not give the CPU threads a share of each batch (default `1` on a GPU) |
+| `VIDES_HYBRID_SHARE=f` | Fix the CPU share of each batch at `f` (0..1) instead of adapting it |
+| `VIDES_PIPELINE=0` | Hamiltonian path: do not overlap the eigen self-energies with the GPU solve |
+| `VIDES_GPU_POOL=0` | Allocate GPU buffers per call instead of reusing them from a pool |
+| `VIDES_GPU_SPIN=1` | Busy-wait for the GPU instead of sleeping (frees nothing for the CPU threads) |
 
 Each NEGF call prints which backend it selected and the batch size. If the
 GPU fails mid-run (out of memory, a singular block in the batched LU), the
 driver prints a warning and redoes that batch on the CPU rather than losing
 the bias point.
+
+### CPU and GPU working together
+
+Every energy point is independent, so beyond batching energies on the GPU
+the driver (`src/vides_rgf_batch.c`) uses the CPU cores at the same time:
+
+- **CPU threads.** The CPU paths (NEGF solve, decimation, eigen
+  self-energy) spread energies over all cores. Each energy runs exactly
+  the stock scalar code into its own output slot, so the results are
+  bit-identical to the serial ones for any thread count (checked in C4
+  and S4: difference exactly 0). LAPACK is compiled with `-frecursive`
+  and the first energy of the first parallel call runs alone, so its
+  one-time initialisation cannot race.
+- **Hybrid split.** Each batch is divided between the GPU, running on a
+  background thread, and the CPU threads, running at the same time. The
+  share follows the throughput each side measured on earlier batches of
+  the same shape (energies per second, smoothed), so that both finish
+  together: small devices end up mostly on the CPU, large ones mostly on
+  the GPU, and neither side sits idle. The GPU waits by sleeping
+  (`cudaDeviceScheduleBlockingSync`), so it does not take a core from the
+  CPU threads.
+- **Pipeline.** On the Hamiltonian path with the eigen self-energy (the
+  default at `eta < 1e-6`, CPU only, which took 81–93% of its GPU runs),
+  the GPU solves chunk *k* while all CPU threads build the self-energies
+  of chunk *k+1* (double buffering). Charge is still accumulated in energy
+  order, so the result is unchanged.
+- **Persistent GPU state.** The cuBLAS handle lives for the whole process
+  and device buffers go back to a pool for the next call, which matters
+  when a structure is summed over a transverse wave vector (graphene,
+  bilayer: hundreds to thousands of short calls). One mutex serialises
+  GPU use between the worker threads.
 
 ### Verifying it
 
@@ -314,6 +351,11 @@ written to `experiments/results/report.html`. See
 | R1 | correctness | the tutorials in `demo/` as real simulations, incl. self-consistent FETs and I-V sweeps |
 | R2 | correctness | the regression tests in `test/` against their stored reference data |
 | P1 | correctness | physics laws: integer/symmetric T, band shift, reciprocity, neutrality, I-V behaviour |
+| C4 | correctness | every concurrent mode (threads, hybrid, GPU only) against the serial CPU |
+| S4 | speed | CPU thread scaling of the solver, decimation and eigen self-energy |
+| S5 | speed | CPU+GPU co-execution vs CPU alone and GPU alone, over problem size |
+| S6 | speed | per-call GPU overhead with and without the memory pool |
+| S7 | speed | whole devices in every execution mode: stock CPU, CPU threads, GPU only, proposed |
 
 **Results on a Tesla T4:** *pending — to be filled in from the first real
 GPU run of the suite.*
@@ -323,7 +365,7 @@ GPU run of the suite.*
 | File | Role |
 |---|---|
 | `src/vides_rgf_batch.h` | Batched NEGF API shared by both backends |
-| `src/vides_rgf_batch.c` | CPU reference (calls the stock `LDOS`) and dispatcher |
+| `src/vides_rgf_batch.c` | CPU reference (calls the stock `LDOS`), threads, hybrid CPU+GPU dispatcher, pipeline jobs |
 | `src/vides_gpu.cu` | CUDA backend |
 | `src/vides_gpu_stub.c` | No-op stubs for CPU-only builds |
 | `test/test_gpu_vs_cpu.py` | GPU-vs-CPU numerical comparison |

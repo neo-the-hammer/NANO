@@ -180,6 +180,73 @@ int vides_decimation_batch_gpu(int M, int NB, const double *E, double eta,
 int vides_selfh_use_decimation(double eta);
 
 /* ---------------------------------------------------------------- */
+/* Concurrency: CPU threads, CPU+GPU co-execution, pipelining        */
+/* ---------------------------------------------------------------- */
+/*
+ * Every energy point is independent, so besides batching energies on the
+ * GPU the driver can
+ *
+ *   - spread a batch over CPU threads (VIDES_THREADS, default: all online
+ *     cores).  Each energy runs exactly the stock scalar code and writes
+ *     only its own outputs, so threaded results are bit-identical to the
+ *     serial ones whatever the thread count.
+ *   - split one batch between the GPU and the CPU threads, both working
+ *     at the same time (VIDES_HYBRID=1, the default when a GPU is used;
+ *     0 = GPU only).  The split follows the measured throughput of each
+ *     side for this problem shape, so a device the CPU solves faster ends
+ *     up mostly on the CPU and a large one mostly on the GPU.
+ *   - overlap the CPU-only contact self-energy (eigen method) of the next
+ *     chunk with the GPU solve of the current one in H_charge_T
+ *     (VIDES_PIPELINE=1, the default when a GPU is used).
+ */
+
+/* Number of CPU worker threads (>= 1).  VIDES_THREADS overrides. */
+int vides_cpu_threads(void);
+/* Override the thread count for the rest of the process (n >= 1), as the
+   experiments harness does to measure scaling. */
+void vides_set_cpu_threads(int n);
+
+/* 1 if batches may be split between the GPU and the CPU (VIDES_HYBRID). */
+int vides_hybrid_enabled(void);
+
+/* 1 if H_charge_T may overlap self-energies with GPU solves
+   (VIDES_PIPELINE). */
+int vides_pipeline_enabled(void);
+
+/* Run fn(ctx, i) for i = 0..N-1 on up to nthreads threads (dynamic
+   scheduling, one index at a time).  The very first call in a process
+   runs index 0 alone before the others start, so routines with one-time
+   initialisation (LAPACK's machine-constant SAVE blocks) see it done
+   before any concurrency. */
+typedef void (*vides_index_fn)(void *ctx, int i);
+void vides_parallel_for(int N, int nthreads, vides_index_fn fn, void *ctx);
+
+/* selfH_new() -- the eigen-decomposition contact self-energy -- for NB
+   energies, spread over the CPU threads.  out[b] receives the n x n
+   matrix selfH_new(E[b], ...) returns (caller frees with cfree_cmatrix). */
+void vides_selfH_new_batch(int NB, const double *E, vides_complex ***diag,
+                           vides_complex ***updiag, vides_complex ***lowdiag,
+                           int N, int Nc, int lead, double eta,
+                           vides_complex ***out);
+
+/* vides_rgf_batch() on a background thread, GPU only (no CPU share: the
+   CPU is busy preparing the next chunk).  Falls back to the threaded CPU
+   path if the GPU refuses the batch.  The caller keeps every argument
+   alive until vides_rgf_wait() returns, which gives the return code. */
+typedef struct vides_rgf_job vides_rgf_job;
+vides_rgf_job *vides_rgf_start(const vides_rgf_desc *desc, const double *E,
+                               vides_complex ***diag, vides_complex ***updiag,
+                               vides_complex ***lowdiag,
+                               vides_complex ***sigmas, vides_complex ***sigmad,
+                               double *A1, double *A2, double *T);
+int vides_rgf_wait(vides_rgf_job *job);
+
+/* Share of energies the hybrid split last gave the CPU for this kind of
+   problem (0..1), for reports; -1 if none yet.  kind: 0 = RGF, 1 =
+   decimation; size: n for RGF, M for decimation. */
+double vides_hybrid_cpu_share(int kind, int size, int Nc);
+
+/* ---------------------------------------------------------------- */
 /* Profiling (opt-in: VIDES_PROFILE=1)                               */
 /* ---------------------------------------------------------------- */
 

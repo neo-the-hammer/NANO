@@ -27,6 +27,11 @@ Experiments (see each module in experiments/exps/ for the details):
   S1  NEGF solver speed: scaling in n, Nc, NB                 speed
   S2  self-energy speed: eigen vs decimation, CPU vs GPU      speed
   S3  whole-device speed with time breakdown                  speed
+  C4  concurrent CPU+GPU modes agree with the serial CPU      correctness
+  S4  CPU thread scaling (solver, decimation, eigen Sigma)    speed
+  S5  CPU+GPU co-execution (hybrid split) vs either alone     speed
+  S6  per-call GPU overhead: memory pool, persistent handle   speed
+  S7  whole devices in every execution mode (proposed)        speed
   R1  original tutorials (demo/) as real simulations          correctness
   R2  original regression tests (test/) vs stored references  correctness
   P1  device physics laws (symmetries, I-V behaviour)         correctness
@@ -58,11 +63,13 @@ import c1_rgf, c2_selfenergy, c3_devices  # noqa: E402,E401
 import a1_selfenergy_accuracy, a2_accuracy_speed  # noqa: E402,E401
 import s1_rgf_scaling, s2_selfenergy_speed, s3_devices_speed  # noqa: E402,E401
 import r1_tutorials, r2_regression, p1_physics  # noqa: E402,E401
+import c4_concurrency, s4_threads, s5_hybrid, s6_overhead, s7_modes  # noqa: E402,E401
 
-EXPERIMENTS = [c1_rgf, c2_selfenergy, c3_devices, a1_selfenergy_accuracy,
+EXPERIMENTS = [c1_rgf, c2_selfenergy, c3_devices, c4_concurrency, a1_selfenergy_accuracy,
                a2_accuracy_speed, s1_rgf_scaling, s2_selfenergy_speed,
-               s3_devices_speed, r1_tutorials, r2_regression, p1_physics]
-NEEDS_MODULE = {"C3", "A2", "S3", "R1", "R2", "P1"}
+               s3_devices_speed, s4_threads, s5_hybrid, s6_overhead, s7_modes,
+               r1_tutorials, r2_regression, p1_physics]
+NEEDS_MODULE = {"C3", "C4", "A2", "S3", "S7", "R1", "R2", "P1"}
 
 
 def print_table(cols, rows, out=sys.stdout, indent="   "):

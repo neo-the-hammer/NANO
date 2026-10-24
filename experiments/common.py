@@ -106,9 +106,13 @@ def build_native(log=print):
     raise RuntimeError("linking the native harness failed:\n" + errs[-1])
 
 
-def run_native(exe, args, timeout=3600):
+def run_native(exe, args, timeout=3600, env=None):
+    e = None
+    if env:
+        e = dict(os.environ)
+        e.update({k: str(v) for k, v in env.items()})
     proc = subprocess.run([exe] + [str(a) for a in args], capture_output=True,
-                          text=True, timeout=timeout)
+                          text=True, timeout=timeout, env=e)
     for line in reversed(proc.stdout.splitlines()):
         line = line.strip()
         if line.startswith("{"):
@@ -130,11 +134,38 @@ PROFILE_RE = re.compile(r"\[ViDES profile\].*total ([0-9.eE+-]+) s = "
                         r"([0-9.eE+-]+) s")
 
 
-def run_device(spec, gpu, selfh=None, repeat=1, timeout=7200):
+# Execution modes (environment of the worker process).  Every variable a
+# mode may set is cleared first, so modes never leak into each other.
+MODE_VARS = ("VIDES_THREADS", "VIDES_HYBRID", "VIDES_PIPELINE", "VIDES_GPU_POOL",
+             "VIDES_HYBRID_SHARE")
+MODES = {
+    # the stock code path: CPU, one thread
+    "cpu1": (False, {"VIDES_THREADS": "1"}),
+    # CPU, every core
+    "cpuN": (False, {}),
+    # GPU as in the first CUDA version: GPU only, no pool, no pipeline
+    "gpu": (True, {"VIDES_HYBRID": "0", "VIDES_PIPELINE": "0", "VIDES_GPU_POOL": "0"}),
+    # the proposed method, the default: GPU + CPU threads concurrently,
+    # adaptive split, pipelined self-energies, persistent GPU state
+    "hybrid": (True, {}),
+}
+MODE_LABEL = {"cpu1": "CPU, 1 thread (stock)", "cpuN": "CPU, all threads",
+              "gpu": "GPU only", "hybrid": "GPU + CPU concurrent (proposed)"}
+
+
+def mode_env(env, extra):
+    for k in MODE_VARS:
+        env.pop(k, None)
+    env.update(extra or {})
+    return env
+
+
+def run_device(spec, gpu, selfh=None, repeat=1, timeout=7200, env=None):
     """Run one device end to end (charge_T + current) in a fresh process
-    with the backend fixed by VIDES_GPU.  spec: see worker.py."""
+    with the backend fixed by VIDES_GPU.  spec: see worker.py.  env: extra
+    environment (an execution mode, see MODES)."""
     import tempfile
-    env = dict(os.environ)
+    env = mode_env(dict(os.environ), env)
     env["VIDES_GPU"] = "1" if gpu else "0"
     env["VIDES_PROFILE"] = "1"
     if selfh:
@@ -180,12 +211,12 @@ def parse_banners(info, stdout, gpu):
     info["gpu_used"] = bool(gpu) and gpu_line_ok(info["backend"])
 
 
-def run_sim(name, gpu, quick, timeout=14400):
+def run_sim(name, gpu, quick, timeout=14400, env=None):
     """Run one scenario of sims.py (an original ViDES script) in a fresh
     process with the backend fixed by VIDES_GPU, in a scratch directory.
     Returns the scenario's result dict plus timing and backend fields."""
     import tempfile
-    env = dict(os.environ)
+    env = mode_env(dict(os.environ), env)
     env["VIDES_GPU"] = "1" if gpu else "0"
     env["VIDES_PROFILE"] = "1"
     env.pop("VIDES_SELFH", None)
@@ -500,6 +531,10 @@ def device_dims(spec):
     return n, Nc, NE
 
 
+def cpu_count():
+    return os.cpu_count() or 1
+
+
 def u_device(spec, gpu=False, selfh=None, repeat=1):
     n, Nc, NE = device_dims(spec)
     kind = spec["kind"]
@@ -513,11 +548,11 @@ def u_device(spec, gpu=False, selfh=None, repeat=1):
     return repeat * NE * (10.0 * Nc * n ** 3 + sig)
 
 
-def device_step(label, spec, gpu, selfh=None, repeat=1, extra=None):
+def device_step(label, spec, gpu, selfh=None, repeat=1, extra=None, env=None):
     """Step running one device on one backend; the record carries `tag`
     fields from `extra` so analyses can find it."""
     def fn():
-        r = run_device(spec, gpu, selfh=selfh, repeat=repeat)
+        r = run_device(spec, gpu, selfh=selfh, repeat=repeat, env=env)
         r.update(extra or {})
         r["selfh"] = selfh
         return r

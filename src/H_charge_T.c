@@ -316,7 +316,10 @@ static PyObject* py_H_charge_T(PyObject* self, PyObject* args)
     vides_rgf_desc vdesc;
     complex ***SSch,***SDch;
     double *Ech,*A1ch,*A2ch,*Tch;
-    int NBmax,nb,ib,use_dec;
+    int NBmax,nb,ib,use_dec,pipe,cur,nbc[2];
+    double *E2[2]={NULL,NULL},*T2[2]={NULL,NULL},*A12[2]={NULL,NULL},*A22[2]={NULL,NULL};
+    complex ***SS2[2]={NULL,NULL},***SD2[2]={NULL,NULL};
+    vides_rgf_job *job;
     double t_neg0,t_self=0,t_solve=0,t0;
     complex **W0s=NULL,**W0d=NULL,**Bs=NULL,**BDs=NULL,**Bd=NULL,**BDd=NULL;
 
@@ -336,23 +339,32 @@ static PyObject* py_H_charge_T(PyObject* self, PyObject* args)
     if (!rank) printf("NEGF backend: %s, %d energies per batch \n",
                       vides_gpu_describe(),NBmax);
 
-    Ech =(double *)malloc((size_t)NBmax*sizeof(double));
-    Tch =(double *)malloc((size_t)NBmax*sizeof(double));
-    SSch=(complex ***)malloc((size_t)NBmax*sizeof(complex **));
-    SDch=(complex ***)malloc((size_t)NBmax*sizeof(complex **));
-    A1ch=(double *)malloc((size_t)NBmax*Nc*NUM*sizeof(double));
-    A2ch=(double *)malloc((size_t)NBmax*Nc*NUM*sizeof(double));
-    if (!Ech||!Tch||!SSch||!SDch||!A1ch||!A2ch)
+    // Contact self-energy method (see vides_selfh_use_decimation()).
+    use_dec=vides_selfh_use_decimation(eta);
+    // Pipeline (see vides_rgf_batch.h): with the eigen self-energy, which
+    // runs on the CPU only, the GPU solves chunk k while the CPU threads
+    // build the self-energies of chunk k+1, so two chunk buffers.
+    pipe=(!use_dec)&&vides_pipeline_enabled();
+    for (ib=0;ib<(pipe?2:1);ib++)
       {
-        printf("Out of memory allocating the NEGF energy batch \n");
-        exit(0);
+        E2[ib] =(double *)malloc((size_t)NBmax*sizeof(double));
+        T2[ib] =(double *)malloc((size_t)NBmax*sizeof(double));
+        SS2[ib]=(complex ***)malloc((size_t)NBmax*sizeof(complex **));
+        SD2[ib]=(complex ***)malloc((size_t)NBmax*sizeof(complex **));
+        A12[ib]=(double *)malloc((size_t)NBmax*Nc*NUM*sizeof(double));
+        A22[ib]=(double *)malloc((size_t)NBmax*Nc*NUM*sizeof(double));
+        if (!E2[ib]||!T2[ib]||!SS2[ib]||!SD2[ib]||!A12[ib]||!A22[ib])
+          {
+            printf("Out of memory allocating the NEGF energy batch \n");
+            exit(0);
+          }
       }
 
-    // Contact self-energy method (see vides_selfh_use_decimation()).
     // The leads' decimation cells are energy independent: build them once.
-    use_dec=vides_selfh_use_decimation(eta);
-    if (!rank) printf("Contact self-energy: %s \n",
-                      use_dec ? "decimation (selfH_dec)" : "eigen-decomposition (selfH_new)");
+    if (!rank) printf("Contact self-energy: %s%s, %d CPU threads \n",
+                      use_dec ? "decimation (selfH_dec)" : "eigen-decomposition (selfH_new)",
+                      pipe ? ", pipelined with the GPU solve" : "",
+                      vides_cpu_threads());
     if (use_dec)
       {
         W0s=cmatrix(0,4*NUM-1,0,4*NUM-1);  Bs=cmatrix(0,4*NUM-1,0,4*NUM-1);
@@ -362,42 +374,66 @@ static PyObject* py_H_charge_T(PyObject* self, PyObject* args)
         selfH_dec_cell(DIAG,UPDIAG,LOWDIAG,NUM,Nc,1,W0d,Bd,BDd);
       }
 
+    // Fill buffer k with the next chunk of energies and their self-energies
+    // (lead = 0(1) corresponds to right(left) lead).  Returns its size.
+#define FILL_CHUNK(k) do {                                                  \
+      nb=0;                                                                 \
+      while ((nb<NBmax)&&(E<=(Eupper+dE*0.5)))                              \
+        { E2[k][nb]=E; nb++; E+=dE; }                                       \
+      if (nb>0) {                                                           \
+        if (use_dec)                                                        \
+          {                                                                 \
+            vides_decimation_batch(4*NUM,nb,E2[k],eta,W0s,Bs,BDs,3*NUM,NUM,SS2[k]); \
+            vides_decimation_batch(4*NUM,nb,E2[k],eta,W0d,Bd,BDd,3*NUM,NUM,SD2[k]); \
+          }                                                                 \
+        else                                                                \
+          {                                                                 \
+            vides_selfH_new_batch(nb,E2[k],DIAG,UPDIAG,LOWDIAG,NUM,Nc,0,eta,SS2[k]); \
+            vides_selfH_new_batch(nb,E2[k],DIAG,UPDIAG,LOWDIAG,NUM,Nc,1,eta,SD2[k]); \
+          }                                                                 \
+      }                                                                     \
+      nbc[k]=nb;                                                            \
+    } while (0)
+
     t_neg0=vides_now();
-    while (E<=(Eupper+dE*0.5)){
+    cur=0;
+    t0=vides_now();
+    FILL_CHUNK(0);
+    t_self+=vides_now()-t0;
+    while (nbc[cur]>0){
 
-      // I fill one chunk of energies, building the Self-Energy for each.
-      // lead = 0(1) corresponds to right(left) lead.
-      t0=vides_now();
-      nb=0;
-      while ((nb<NBmax)&&(E<=(Eupper+dE*0.5)))
+      Ech=E2[cur]; Tch=T2[cur]; SSch=SS2[cur]; SDch=SD2[cur];
+      A1ch=A12[cur]; A2ch=A22[cur];
+      vdesc.NB=nbc[cur];
+      if (pipe)
         {
-          if (!use_dec)
+          // GPU solve of this chunk in the background ...
+          job=vides_rgf_start(&vdesc,Ech,DIAG,UPDIAG,LOWDIAG,SSch,SDch,
+                              A1ch,A2ch,Tch);
+          // ... while the CPU threads prepare the next one.
+          t0=vides_now();
+          FILL_CHUNK(1-cur);
+          t_self+=vides_now()-t0;
+          t0=vides_now();
+          if (vides_rgf_wait(job)!=0)
             {
-              SSch[nb] = selfH_new(E, DIAG, UPDIAG, LOWDIAG, NUM, Nc,0, eta);
-              SDch[nb] = selfH_new(E, DIAG, UPDIAG, LOWDIAG, NUM, Nc,1, eta);
+              printf("NEGF batch failed \n");
+              exit(0);
             }
-          Ech[nb]=E;
-          nb++;
-          E+=dE;
+          t_solve+=vides_now()-t0;   // only the part not hidden
         }
-
-      // Decimation: the self-energies of the whole chunk at once.
-      if (use_dec)
+      else
         {
-          vides_decimation_batch(4*NUM,nb,Ech,eta,W0s,Bs,BDs,3*NUM,NUM,SSch);
-          vides_decimation_batch(4*NUM,nb,Ech,eta,W0d,Bd,BDd,3*NUM,NUM,SDch);
+          t0=vides_now();
+          if (vides_rgf_batch(&vdesc,Ech,DIAG,UPDIAG,LOWDIAG,SSch,SDch,
+                              A1ch,A2ch,Tch)!=0)
+            {
+              printf("NEGF batch failed \n");
+              exit(0);
+            }
+          t_solve+=vides_now()-t0;
         }
-
-      t_self+=vides_now()-t0;
-      t0=vides_now();
-      vdesc.NB=nb;
-      if (vides_rgf_batch(&vdesc,Ech,DIAG,UPDIAG,LOWDIAG,SSch,SDch,
-                          A1ch,A2ch,Tch)!=0)
-        {
-          printf("NEGF batch failed \n");
-          exit(0);
-        }
-      t_solve+=vides_now()-t0;
+      nb=nbc[cur];
 
       for (ib=0;ib<nb;ib++)
         {
@@ -468,7 +504,17 @@ static PyObject* py_H_charge_T(PyObject* self, PyObject* args)
           TE[ie]=Tch[ib];
           ie++;
         }
+
+      if (!pipe)
+        {
+          t0=vides_now();
+          FILL_CHUNK(0);
+          t_self+=vides_now()-t0;
+        }
+      else
+        cur=1-cur;
     }
+#undef FILL_CHUNK
 
     vides_profile_report("Hamiltonian",vides_now()-t_neg0,t_self,t_solve);
 
@@ -479,12 +525,11 @@ static PyObject* py_H_charge_T(PyObject* self, PyObject* args)
         cfree_cmatrix(Bd,0,4*NUM-1,0,4*NUM-1);   cfree_cmatrix(BDd,0,4*NUM-1,0,4*NUM-1);
       }
 
-    free(Ech);
-    free(Tch);
-    free(SSch);
-    free(SDch);
-    free(A1ch);
-    free(A2ch);
+    for (ib=0;ib<2;ib++)
+      {
+        free(E2[ib]); free(T2[ib]); free(SS2[ib]); free(SD2[ib]);
+        free(A12[ib]); free(A22[ib]);
+      }
   }
 
   if (!rank) printf("\n\n*****************************************\n");

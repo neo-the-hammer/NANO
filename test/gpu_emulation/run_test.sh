@@ -68,7 +68,8 @@ CFILES="nrutil cmatrix cmatrixm cvectorm ctensor4 c3tensor ccvector \
         cdabs cIm cmatmul_proc spectralfun spectralfunmode transmission VAVdaga \
         rgfblock rgfblock_Lake LDOS LDOS_Lake LDOSmode vides_rgf_batch \
         Gzerozero cmatnorm2diff selfGNR selfH_dec create_updiagGNR \
-        create_lowdiagGNR create_beta1GNR create_beta2GNR create_beta2transpGNR"
+        create_lowdiagGNR create_beta1GNR create_beta2GNR create_beta2transpGNR \
+        selfH_new cmatvect cmul eigenvalues_non_symmetric_matrix flip_cmatrix"
 
 OBJS=""
 for f in $CFILES; do
@@ -79,6 +80,9 @@ gcc -c -O1 -w -I"$here" "$here/lapack_shim.c" -o "$tmp/lapack_shim.o"
 
 g++ -O1 -std=c++11 -w -I"$here" -I"$src" \
     "$tmp/vides_gpu.cpp" "$here/cuda_emu.cpp" "$here/emu_main.cpp" \
-    $OBJS "$tmp/lapack_shim.o" -lm -o "$tmp/emu_test"
+    $OBJS "$tmp/lapack_shim.o" -lm -lpthread -o "$tmp/emu_test"
 
-"$tmp/emu_test"
+echo "== pool off (device-memory leak checks on)"
+VIDES_GPU_POOL=0 "$tmp/emu_test"
+echo "== pool on (buffers reused across calls)"
+VIDES_GPU_POOL=1 "$tmp/emu_test"

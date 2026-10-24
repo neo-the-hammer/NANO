@@ -43,6 +43,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <pthread.h>
 
 /* Included last: vides_rgf_batch.h pulls in complex.h, which macro-aliases
    'complex' to vides_complex and would otherwise collide with the CUDA and
@@ -328,6 +329,100 @@ static cublasStatus_t gemm_rm_rhs_dagger(cublasHandle_t h,
 }
 
 /* ------------------------------------------------------------------ */
+/* Persistent state: cuBLAS handle, device memory pool, GPU lock       */
+/* ------------------------------------------------------------------ */
+/*
+ * An entry point is called once per bias point and, for structures summed
+ * over a transverse wave vector (graphene, bilayer), once per k: thousands
+ * of short calls.  Creating a cuBLAS handle and ~30 cudaMalloc/cudaFree
+ * pairs per call then costs more than the solve.  So the handle lives for
+ * the whole process, and device buffers are returned to a pool and reused
+ * by later calls (VIDES_GPU_POOL=0 restores plain cudaMalloc/cudaFree).
+ * One mutex serialises GPU use, since the hybrid scheduler and the
+ * pipeline call the GPU from worker threads.
+ */
+
+static pthread_mutex_t g_gpu_mx = PTHREAD_MUTEX_INITIALIZER;
+static cublasHandle_t  g_handle = NULL;
+
+static cublasHandle_t gpu_handle(void)
+{
+  if (!g_handle && cublasCreate(&g_handle) != CUBLAS_STATUS_SUCCESS)
+    g_handle = NULL;
+  return g_handle;
+}
+
+#define POOL_SLOTS 256
+struct PoolBlk { void *p; size_t n; };
+static PoolBlk g_pool[POOL_SLOTS];
+static int     g_npool = 0;
+static size_t  g_pool_bytes = 0;
+
+static int pool_on(void)
+{
+  static int v = -1;
+  if (v < 0) {
+    const char *e = getenv("VIDES_GPU_POOL");
+    v = !(e && (e[0] == '0' || e[0] == 'n' || e[0] == 'N'));
+  }
+  return v;
+}
+
+static void pool_trim(void)
+{
+  for (int i = 0; i < g_npool; i++) cudaFree(g_pool[i].p);
+  g_npool = 0;
+  g_pool_bytes = 0;
+}
+
+/* Smallest pooled block of at least n bytes and at most 2n + 1 MB, else a
+   fresh cudaMalloc (after emptying the pool if memory is short). */
+static cudaError_t dev_alloc(void **p, size_t n)
+{
+  if (pool_on()) {
+    int best = -1;
+    for (int i = 0; i < g_npool; i++)
+      if (g_pool[i].n >= n && g_pool[i].n <= 2 * n + ((size_t)1 << 20) &&
+          (best < 0 || g_pool[i].n < g_pool[best].n)) best = i;
+    if (best >= 0) {
+      *p = g_pool[best].p;
+      g_pool_bytes -= g_pool[best].n;
+      g_pool[best] = g_pool[--g_npool];
+      return cudaSuccess;
+    }
+  }
+  cudaError_t e = cudaMalloc(p, n);
+  if (e != cudaSuccess && g_npool > 0) {
+    cudaGetLastError();
+    pool_trim();
+    e = cudaMalloc(p, n);
+  }
+  return e;
+}
+
+static void dev_free(void *p, size_t n)
+{
+  if (!p) return;
+  if (pool_on() && g_npool < POOL_SLOTS) {
+    g_pool[g_npool].p = p;
+    g_pool[g_npool].n = n;
+    g_npool++;
+    g_pool_bytes += n;
+    return;
+  }
+  cudaFree(p);
+}
+
+/* Free device memory as the batch sizing should see it: what the driver
+   reports plus what the pool holds for reuse. */
+static cudaError_t mem_info(size_t *freeb, size_t *totalb)
+{
+  cudaError_t e = cudaMemGetInfo(freeb, totalb);
+  if (e == cudaSuccess) *freeb += g_pool_bytes;
+  return e;
+}
+
+/* ------------------------------------------------------------------ */
 /* Workspace                                                           */
 /* ------------------------------------------------------------------ */
 
@@ -344,14 +439,25 @@ struct Ws {
   double *E, *A1, *A2, *T;
   int *ipiv, *info, *flag, *order;
   void **owned;
+  size_t *owned_n;
   int nowned;
 };
 
 static void ws_free(Ws *w)
 {
-  for (int i = 0; i < w->nowned; i++) cudaFree(w->owned[i]);
+  for (int i = 0; i < w->nowned; i++) dev_free(w->owned[i], w->owned_n[i]);
   free(w->owned);
-  w->owned = NULL; w->nowned = 0;
+  free(w->owned_n);
+  w->owned = NULL; w->owned_n = NULL; w->nowned = 0;
+}
+
+static int ws_init(Ws *w)
+{
+  memset(w, 0, sizeof *w);
+  w->owned   = (void **)calloc(48, sizeof(void *));
+  w->owned_n = (size_t *)calloc(48, sizeof(size_t));
+  if (!w->owned || !w->owned_n) { free(w->owned); free(w->owned_n); return -1; }
+  return 0;
 }
 
 /* Allocate and record, so a failure part-way through still unwinds. */
@@ -361,8 +467,9 @@ static int ws_alloc(Ws *w, void **slot, size_t bytes)
 {
   if (bytes == 0) { *slot = NULL; return 0; }
   if (w->nowned >= WS_MAX_ALLOCS) return -1;   /* table full: bug guard */
-  if (cudaMalloc(slot, bytes) != cudaSuccess) { *slot = NULL; return -1; }
+  if (dev_alloc(slot, bytes) != cudaSuccess) { *slot = NULL; return -1; }
   cudaMemset(*slot, 0, bytes);
+  w->owned_n[w->nowned] = bytes;
   w->owned[w->nowned++] = *slot;
   return 0;
 }
@@ -425,6 +532,13 @@ static void probe_device(void)
            prop.name, prop.major, prop.minor,
            (double)prop.totalGlobalMem / (1024.0 * 1024.0 * 1024.0), fp64);
   g_usable = 1;
+
+  /* Wait for the GPU by sleeping, not spinning: with the hybrid scheduler
+     the CPU cores have work of their own while the GPU runs.  Must come
+     before the context exists.  VIDES_GPU_SPIN=1 keeps the spin wait. */
+  const char *spin = getenv("VIDES_GPU_SPIN");
+  if (!(spin && spin[0] == '1'))
+    cudaSetDeviceFlags(cudaDeviceScheduleBlockingSync);
 }
 
 extern "C" int vides_gpu_available(void)
@@ -445,7 +559,7 @@ extern "C" int vides_gpu_batch_size(const vides_rgf_desc *desc)
   if (!g_usable) return 0;
 
   size_t freeb = 0, totalb = 0;
-  if (cudaMemGetInfo(&freeb, &totalb) != cudaSuccess) return 0;
+  if (mem_info(&freeb, &totalb) != cudaSuccess) return 0;
 
   const size_t n    = (size_t)desc->n;
   const size_t Nc   = (size_t)desc->Nc;
@@ -516,7 +630,7 @@ static int inv_rm(cublasHandle_t h, Ws *w, cuDoubleComplex *dst,
 /* Driver                                                              */
 /* ------------------------------------------------------------------ */
 
-extern "C" int vides_rgf_batch_gpu(const vides_rgf_desc *desc,
+static int rgf_batch_gpu_impl(const vides_rgf_desc *desc,
                                    const double *E,
                                    vides_complex ***diag,
                                    vides_complex ***updiag,
@@ -547,9 +661,8 @@ extern "C" int vides_rgf_batch_gpu(const vides_rgf_desc *desc,
   const size_t cz   = sizeof(cuDoubleComplex);
 
   cublasHandle_t h = NULL;
-  Ws w; memset(&w, 0, sizeof w);
-  w.owned = (void **)calloc(WS_MAX_ALLOCS, sizeof(void *));
-  if (!w.owned) return -2;
+  Ws w;
+  if (ws_init(&w) != 0) return -2;
 
   WS_ALLOC(diag,  (size_t)Nc * nn * cz);
   WS_ALLOC(up,    (size_t)Nc * nn * cz);
@@ -583,7 +696,7 @@ extern "C" int vides_rgf_batch_gpu(const vides_rgf_desc *desc,
   WS_ALLOC(info,  (size_t)NB * sizeof(int));
   WS_ALLOC(flag,  sizeof(int));
 
-#define BAIL(rc) do { if (h) cublasDestroy(h); ws_free(&w); return (rc); } while (0)
+#define BAIL(rc) do { ws_free(&w); return (rc); } while (0)
 #define TRY(expr) do { if ((expr) != 0) BAIL(-3); } while (0)
 
 /* From here on the workspace and the cuBLAS handle are live, so the
@@ -611,7 +724,8 @@ extern "C" int vides_rgf_batch_gpu(const vides_rgf_desc *desc,
     }                                                                      \
   } while (0)
 
-  if (cublasCreate(&h) != CUBLAS_STATUS_SUCCESS) BAIL(-2);
+  h = gpu_handle();
+  if (!h) BAIL(-2);
 
   /* ---- upload ---------------------------------------------------- */
   /* The caller's blocks are separate cmatrix() allocations, each itself
@@ -845,7 +959,6 @@ extern "C" int vides_rgf_batch_gpu(const vides_rgf_desc *desc,
       BAIL(-2);
   }
 
-  cublasDestroy(h);
   ws_free(&w);
   return 0;
 
@@ -920,9 +1033,8 @@ static int decim_sub(cublasHandle_t h, int M, int nb, const double *E,
   const long long sM = (long long)mm, s0 = 0;
   const size_t cz = sizeof(cuDoubleComplex);
 
-  Ws w; memset(&w, 0, sizeof w);
-  w.owned = (void **)calloc(WS_MAX_ALLOCS, sizeof(void *));
-  if (!w.owned) return -2;
+  Ws w;
+  if (ws_init(&w) != 0) return -2;
 
   cuDoubleComplex *A, *As, *a, *bb, *X1, *X2, *X3, *X4, *blk, *tmpp;
   double *dE;
@@ -1024,7 +1136,7 @@ static int decim_sub(cublasHandle_t h, int M, int nb, const double *E,
 #undef DBLAS
 }
 
-extern "C" int vides_decimation_batch_gpu(int M, int NB, const double *E,
+static int decimation_batch_gpu_impl(int M, int NB, const double *E,
                                           double eta, vides_complex **W0,
                                           vides_complex **BETA,
                                           vides_complex **BETADAGA,
@@ -1043,7 +1155,7 @@ extern "C" int vides_decimation_batch_gpu(int M, int NB, const double *E,
 
   /* Nine M x M work matrices per energy, plus small change. */
   per = 10 * mm * cz + (size_t)nout * nout * cz + (size_t)M * sizeof(int) + 64;
-  if (cudaMemGetInfo(&freeb, &totalb) != cudaSuccess) return -1;
+  if (mem_info(&freeb, &totalb) != cudaSuccess) return -1;
   if (freeb <= 3 * mm * cz + ((size_t)64 << 20)) return -2;
   chunk = (int)(((double)(freeb - 3 * mm * cz - ((size_t)64 << 20)) * 0.8) / per);
   if (chunk < 1) return -2;
@@ -1058,10 +1170,11 @@ extern "C" int vides_decimation_batch_gpu(int M, int NB, const double *E,
     }
   thr *= VIDES_DECIM_TOL;
 
-  if (cublasCreate(&h) != CUBLAS_STATUS_SUCCESS) return -2;
-  if (cudaMalloc((void **)&dW0, mm * cz) != cudaSuccess ||
-      cudaMalloc((void **)&dB,  mm * cz) != cudaSuccess ||
-      cudaMalloc((void **)&dBD, mm * cz) != cudaSuccess) { rc = -2; goto done; }
+  h = gpu_handle();
+  if (!h) return -2;
+  if (dev_alloc((void **)&dW0, mm * cz) != cudaSuccess ||
+      dev_alloc((void **)&dB,  mm * cz) != cudaSuccess ||
+      dev_alloc((void **)&dBD, mm * cz) != cudaSuccess) { rc = -2; goto done; }
   hout = (cuDoubleComplex *)malloc((size_t)chunk * nout * nout * cz);
   {
     cuDoubleComplex *stage = (cuDoubleComplex *)malloc(mm * cz);
@@ -1090,9 +1203,42 @@ extern "C" int vides_decimation_batch_gpu(int M, int NB, const double *E,
 
 done:
   free(hout);
-  if (dW0) cudaFree(dW0);
-  if (dB)  cudaFree(dB);
-  if (dBD) cudaFree(dBD);
-  if (h) cublasDestroy(h);
+  dev_free(dW0, mm * cz);
+  dev_free(dB,  mm * cz);
+  dev_free(dBD, mm * cz);
+  return rc;
+}
+
+/* ------------------------------------------------------------------ */
+/* Entry points: one caller on the GPU at a time                       */
+/* ------------------------------------------------------------------ */
+
+extern "C" int vides_rgf_batch_gpu(const vides_rgf_desc *desc,
+                                   const double *E,
+                                   vides_complex ***diag,
+                                   vides_complex ***updiag,
+                                   vides_complex ***lowdiag,
+                                   vides_complex ***sigmas,
+                                   vides_complex ***sigmad,
+                                   double *A1, double *A2, double *T)
+{
+  pthread_mutex_lock(&g_gpu_mx);
+  int rc = rgf_batch_gpu_impl(desc, E, diag, updiag, lowdiag, sigmas, sigmad,
+                              A1, A2, T);
+  pthread_mutex_unlock(&g_gpu_mx);
+  return rc;
+}
+
+extern "C" int vides_decimation_batch_gpu(int M, int NB, const double *E,
+                                          double eta, vides_complex **W0,
+                                          vides_complex **BETA,
+                                          vides_complex **BETADAGA,
+                                          int off, int nout,
+                                          vides_complex ***out)
+{
+  pthread_mutex_lock(&g_gpu_mx);
+  int rc = decimation_batch_gpu_impl(M, NB, E, eta, W0, BETA, BETADAGA,
+                                     off, nout, out);
+  pthread_mutex_unlock(&g_gpu_mx);
   return rc;
 }

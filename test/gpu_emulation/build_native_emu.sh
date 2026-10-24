@@ -38,5 +38,5 @@ done
 gcc -c -O2 -w -I"$here" "$here/lapack_shim.c" -o "$tmp/lapack_shim.o"
 gcc -c -O2 -std=gnu99 -w -I"$src" "$here/../../experiments/native/vides_native.c" -o "$tmp/vides_native.o"
 g++ -O2 -std=c++11 -w -I"$here" -I"$src" "$tmp/vides_gpu.cpp" "$here/cuda_emu.cpp" \
-    "$tmp/vides_native.o" $OBJS "$tmp/lapack_shim.o" -lm -o "$out"
+    "$tmp/vides_native.o" $OBJS "$tmp/lapack_shim.o" -lm -lpthread -o "$out"
 echo "built $out"

@@ -85,6 +85,8 @@ cudaError_t cudaGetDeviceCount(int *n);
 cudaError_t cudaGetDeviceProperties(cudaDeviceProp *p, int dev);
 cudaError_t cudaMemGetInfo(size_t *freeb, size_t *totalb);
 cudaError_t cudaDeviceSynchronize(void);
+#define cudaDeviceScheduleBlockingSync 0x04
+cudaError_t cudaSetDeviceFlags(unsigned int flags);
 cudaError_t cudaGetLastError(void);
 const char *cudaGetErrorString(cudaError_t e);
 

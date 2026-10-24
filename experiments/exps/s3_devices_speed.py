@@ -6,7 +6,8 @@ reported (steady state: what each further step of a self-consistent loop
 costs); the CPU solves once.  VIDES_PROFILE splits each solve into
 contact self-energy, batched NEGF solve, and the rest (charge assembly,
 Python and data movement).  Each backend uses its own defaults, as a user
-would run it.
+would run it: the CPU process on all cores, the GPU process with the
+hybrid CPU+GPU split (S7 separates every mode).
 """
 
 from common import device_step, rel_to_peak, steady, fmt_e, fmt_t, CPU_C, GPU_C, MUTED

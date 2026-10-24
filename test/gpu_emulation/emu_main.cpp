@@ -29,6 +29,16 @@ void selfH_dec_cell(vides_complex ***diag, vides_complex ***updiag, vides_comple
                     vides_complex **W0, vides_complex **BETA, vides_complex **BETADAGA);
 }
 
+
+/* The device memory pool (VIDES_GPU_POOL, on by default) keeps buffers
+   for reuse on purpose, so device-memory leaks are only checkable with
+   it off -- run_test.sh runs the suite both ways. */
+static int leak_checked(void)
+{
+  const char *e = getenv("VIDES_GPU_POOL");
+  return e && e[0] == '0';
+}
+
 /* Deterministic PRNG so a failure is reproducible. */
 static unsigned long long rng_state = 88172645463325252ULL;
 static double urand(void)
@@ -181,7 +191,7 @@ static int run_case(const char *label, int variant, int n, int Nc, int NB,
     ok &= compare("A2", A2c, A2g, NA, tol);
     ok &= compare("T",  Tc,  Tg,  (size_t)NB, tol);
   }
-  if (after != before) {
+  if (after != before && leak_checked()) {
     printf("    LEAK: %zu device bytes still held (%d allocations)\n",
            after - before, vides_emu_live_allocs());
     ok = 0;
@@ -268,9 +278,10 @@ static int check_decim_cell(const char *label, int N, vides_complex **W0,
      lead equation about as well as the CPU's -- then the gap is the
      problem's conditioning (decimation at small eta), not a GPU bug. */
   int agree = worst <= tol, as_good = rg_res <= 10 * rc_res + 1e-12;
-  ok = ok && (agree || as_good) && after == before;
+  int leak = after != before && leak_checked();
+  ok = ok && (agree || as_good) && !leak;
   printf("  %-30s eta=%-6g  GPU vs CPU rel %-8.1e residual cpu %-8.1e gpu %-8.1e%s  %s\n",
-         label, eta, worst, rc_res, rg_res, after != before ? "  LEAK" : "",
+         label, eta, worst, rc_res, rg_res, leak ? "  LEAK" : "",
          ok ? "ok" : "MISMATCH");
   free_out(cpu, NB, N); free_out(gpu, NB, N);
   return ok;

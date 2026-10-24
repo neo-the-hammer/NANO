@@ -88,6 +88,7 @@ cudaError_t cudaGetDeviceProperties(cudaDeviceProp *p, int)
 cudaError_t cudaMemGetInfo(size_t *freeb, size_t *totalb)
 { *totalb = (size_t)8 << 30; *freeb = (size_t)4 << 30; return cudaSuccess; }
 
+cudaError_t cudaSetDeviceFlags(unsigned int) { return cudaSuccess; }
 cudaError_t cudaDeviceSynchronize(void) { return cudaSuccess; }
 cudaError_t cudaGetLastError(void) { return cudaSuccess; }
 const char *cudaGetErrorString(cudaError_t) { return "emulated"; }
