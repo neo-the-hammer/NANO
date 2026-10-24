@@ -65,8 +65,8 @@ class TMD:
         self.mu1=0.0;
         self.mu2=0.0;
         self.Temp=300;
-        self.E=zeros(NEmax);
-        self.T=zeros(NEmax);
+        self.E=zeros(int(NEmax));
+        self.T=zeros(int(NEmax));
         self.charge=zeros(self.Nc);
         self.rank=0;
         self.atoms_coordinates();

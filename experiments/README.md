@@ -40,7 +40,7 @@ every table and every figure in one page.
 |---|---|---|
 | C1 | correctness | The NEGF solver (recursive Green's function) alone: CPU reference vs batched cuBLAS, all three variants (std, Lake, mode space), two block sizes, plus a near-singular case (eta = 1e-9). Compares source LDOS, drain LDOS and transmission. |
 | C2 | correctness | The contact self-energy alone (Lopez-Sancho decimation): CPU `Gzerozero` vs batched GPU decimation, on the GNR lead and both Hamiltonian-path leads. Also scores each against the lead's own fixed-point equation. |
-| C3 | correctness | Whole devices through the Python API, CPU process vs GPU process: CNT, CNT mode space, GNR, generic Hamiltonian (both on decimation, and each with its default self-energy). Transmission, charge per site, current. |
+| C3 | correctness | Whole devices through the Python API, CPU process vs GPU process: CNT, CNT mode space, GNR, generic Hamiltonian (both on decimation, and each with its default self-energy), CNT and GNR with Schottky contacts, `nanoribbon_fast_ohmic`, a ribbon with a vacancy (xyz), an sp3d5s* silicon nanowire, and 2D graphene, bilayer and TMD flakes summed over ky. Transmission, charge per site, current. |
 | A1 | accuracy | The two self-energy methods of the Hamiltonian path (eigen `selfH_new`, decimation `selfH_dec`) and the GPU decimation, scored by their residual in the lead equation, as eta goes from 1e-3 to 1e-7. |
 | A2 | accuracy | Accuracy vs speed on one Hamiltonian device: CPU+eigen (reference), CPU+decimation, GPU+eigen, GPU+decimation. |
 | S1 | speed | The NEGF solver: time and speedup vs block size n, number of blocks Nc and energies per batch NB. |
@@ -115,7 +115,7 @@ lead equation equally well.
   hybrid method.
 - `sims.py` holds the scenarios of R1, R2 and P1; `sim_worker.py` runs one
   in a scratch directory and counts every NEGF solve.
-- `worker.py` runs one device through the Python API; each backend gets
+- `worker.py` runs one device through the Python API (twelve device kinds, listed in its docstring); each backend gets
   its own process, because the backend is chosen once per process
   (`VIDES_GPU`). `VIDES_PROFILE=1` supplies the time breakdown.
 - Without a GPU everything still runs; GPU columns are empty and the

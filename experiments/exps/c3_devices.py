@@ -14,11 +14,21 @@ charge/transmission assembly in the four entry points.
                method on the CPU, decimation on the GPU -- what a user gets.
                Differences here are the methods', not the GPU's.
 
+  cnt-schottky, gnr-schottky   Schottky contacts (closed-form self-energy)
+  gnr-fast     nanoribbon_fast_ohmic: a ribbon built in Python, H path
+  vacancy      ribbon with one atom removed, from test/ribbon5_hole.xyz
+  si-nanowire  sp3d5s* silicon nanowire, 10 orbitals per atom (H path)
+  graphene-2d, bilayer-2d, tmd-2d   2D flakes summed over the transverse
+               wave vector ky: one H_charge_T per ky
+
 Tolerances (max diff relative to peak, over T, charge and current):
   cnt, cntmode          1e-8   same arithmetic, different summation order
   gnr, hamiltonian      1e-7   plus GPU vs CPU decimation, which agree only
                                to the decimation's own accuracy (see C2)
   ham-default           1e-5   eigen vs decimation (see A1, A2)
+  schottky              1e-8;  gnr-fast, si-nanowire, graphene-2d 1e-7
+                               (eta < 1e-6: eigen on both)
+  vacancy, bilayer-2d, tmd-2d   1e-5 (eta = 1e-5: eigen vs decimation)
 WARN up to 100x the tolerance, FAIL beyond.
 
 Grids are offset by half a step so no energy lands exactly on a zigzag
@@ -31,7 +41,9 @@ ID = "C3"
 TITLE = "Whole devices end to end: CPU vs GPU"
 KIND = "correctness"
 TOLS = {"cnt": 1e-8, "cntmode": 1e-8, "gnr": 1e-7, "hamiltonian": 1e-7,
-        "ham-default": 1e-5}
+        "ham-default": 1e-5, "cnt-schottky": 1e-8, "gnr-schottky": 1e-8, "gnr-fast": 1e-7,
+        "vacancy": 1e-5, "si-nanowire": 1e-7, "graphene-2d": 1e-7, "bilayer-2d": 1e-5,
+        "tmd-2d": 1e-5}
 
 
 def devices(quick):
@@ -42,6 +54,23 @@ def devices(quick):
         ("gnr", {"kind": "gnr", "size": [6, 2.0], "grid": g}, None),
         ("hamiltonian", {"kind": "hamiltonian", "size": [5, 12], "grid": g}, "dec"),
         ("ham-default", {"kind": "hamiltonian", "size": [5, 12], "grid": g}, None),
+    ] + more_devices(quick)
+
+
+def more_devices(quick):
+    """The other device classes of the library (see worker.py)."""
+    g = [-1.4975, 1.4975, 0.01] if quick else [-1.4975, 1.4975, 0.005]
+    gk = [-0.4975, 0.4975, 0.01] if quick else [-0.4975, 0.4975, 0.005]
+    nk = 6 if quick else 16
+    return [
+        ("cnt-schottky", {"kind": "cnt_schottky", "size": [10, 2.0], "grid": g}, None),
+        ("gnr-schottky", {"kind": "gnr_schottky", "size": [6, 2.0], "grid": g}, None),
+        ("gnr-fast", {"kind": "gnr_fast", "size": [4, 2.0], "grid": g}, None),
+        ("vacancy", {"kind": "vacancy", "size": [0, 0], "grid": g}, None),
+        ("si-nanowire", {"kind": "snw", "size": [3.85, 15.0], "grid": [0.05, 9.95, 0.1 if quick else 0.05]}, None),
+        ("graphene-2d", {"kind": "graphene", "size": [8.0 if quick else 15.0, nk], "grid": gk}, None),
+        ("bilayer-2d", {"kind": "bilayer", "size": [8.0 if quick else 10.0, nk], "grid": gk}, None),
+        ("tmd-2d", {"kind": "tmd", "size": [8.0 if quick else 15.0, nk], "grid": g}, None),
     ]
 
 

@@ -22,7 +22,10 @@ def devices(quick):
         g = [-1.5025, 1.5025, 0.01]
         return [("cnt", {"kind": "cnt", "size": [13, 5.0], "grid": g}),
                 ("gnr", {"kind": "gnr", "size": [8, 5.0], "grid": g}),
-                ("hamiltonian", {"kind": "hamiltonian", "size": [8, 24], "grid": g})]
+                ("hamiltonian", {"kind": "hamiltonian", "size": [8, 24], "grid": g}),
+                ("si-nanowire", {"kind": "snw", "size": [3.85, 15.0], "grid": [0.05, 9.95, 0.1]}),
+                ("graphene-2d", {"kind": "graphene", "size": [10.0, 8], "grid": [-0.4975, 0.4975, 0.01]}),
+                ("tmd-2d", {"kind": "tmd", "size": [10.0, 8], "grid": g})]
     g = [-1.5025, 1.5025, 0.005]
     return [("cnt", {"kind": "cnt", "size": [10, 5.0], "grid": g}),
             ("cnt", {"kind": "cnt", "size": [19, 10.0], "grid": g}),
@@ -30,11 +33,17 @@ def devices(quick):
             ("gnr", {"kind": "gnr", "size": [6, 5.0], "grid": g}),
             ("gnr", {"kind": "gnr", "size": [12, 10.0], "grid": g}),
             ("hamiltonian", {"kind": "hamiltonian", "size": [8, 40], "grid": g}),
-            ("hamiltonian", {"kind": "hamiltonian", "size": [16, 40], "grid": g})]
+            ("hamiltonian", {"kind": "hamiltonian", "size": [16, 40], "grid": g}),
+            ("cnt_schottky", {"kind": "cnt_schottky", "size": [19, 10.0], "grid": g}),
+            ("gnr_schottky", {"kind": "gnr_schottky", "size": [12, 10.0], "grid": g}),
+            ("si-nanowire", {"kind": "snw", "size": [7.85, 20.0], "grid": [0.05, 9.95, 0.05]}),
+            ("graphene-2d", {"kind": "graphene", "size": [20.0, 32], "grid": [-0.4975, 0.4975, 0.005]}),
+            ("bilayer-2d", {"kind": "bilayer", "size": [15.0, 32], "grid": [-0.4975, 0.4975, 0.005]}),
+            ("tmd-2d", {"kind": "tmd", "size": [20.0, 32], "grid": g})]
 
 
 def tag(name, spec):
-    return "%s %s" % (name, "x".join(str(x) for x in spec["size"]))
+    return "%s %s" % (name, "x".join("%g" % x for x in spec["size"]))
 
 
 def steps(ctx):

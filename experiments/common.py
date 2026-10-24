@@ -173,7 +173,7 @@ def run_device(spec, gpu, selfh=None, repeat=1, timeout=7200, env=None):
     else:
         env.pop("VIDES_SELFH", None)
     env["PYTHONPATH"] = os.pathsep.join(
-        p for p in [SRC, DEMO, env.get("PYTHONPATH", "")] if p)
+        p for p in [SRC, DEMO, ROOT, env.get("PYTHONPATH", "")] if p)
     fd, out = tempfile.mkstemp(suffix=".json", prefix="vides_exp_")
     os.close(fd)
     try:
@@ -519,16 +519,27 @@ def u_selfh(n, NE):
 
 
 def device_dims(spec):
-    """(n, Nc, NE) a device spec will have, without building it."""
+    """(n, Nc, NE) a device spec will have, without building it, for the
+    cost model.  For structures summed over ky, NE counts every (E, k)
+    solve.  A spec may give "dims": [n, Nc, NE] to override."""
+    if spec.get("dims"):
+        return tuple(int(v) for v in spec["dims"])
     kind, (a, b) = spec["kind"], spec["size"]
-    lo, hi, dE = spec["grid"]
+    lo, hi, dE = spec["grid"] if spec.get("grid") else (-1.5, 1.5, 0.005)
     NE = int(round((hi - lo) / dE)) + 1
-    if kind in ("cnt", "cntmode", "gnr"):
-        Nc = int(4 * ((int(float(b) / 0.144) - 1) // 3) + 2)
-        n = int(a) if kind != "cntmode" else int(spec.get("nmodes", 4))
-    else:
-        n, Nc = int(a), int(b)
-    return n, Nc, NE
+    ring = lambda L, acc=0.144: int(4 * ((int(float(L) / acc) - 1) // 3) + 2)
+    if kind in ("cnt", "cnt_schottky", "gnr", "gnr_schottky", "gnr_fast"):
+        return int(a), ring(b), NE
+    if kind == "cntmode":
+        return int(spec.get("nmodes", 4)), ring(b), NE
+    if kind in ("graphene", "bilayer", "tmd"):
+        n = 2 if kind == "bilayer" else 1
+        return n, ring(a, 0.2 if kind == "tmd" else 0.144), NE * int(b)
+    if kind == "vacancy":
+        return 10, 12, NE
+    if kind == "snw":
+        return 10 * max(4, int((float(a) / 2.0) ** 2)), max(8, int(float(b) / 1.36)), NE
+    return int(a), int(b), NE
 
 
 def cpu_count():
@@ -538,9 +549,9 @@ def cpu_count():
 def u_device(spec, gpu=False, selfh=None, repeat=1):
     n, Nc, NE = device_dims(spec)
     kind = spec["kind"]
-    if kind == "gnr":
-        sig = 2 * 55.0 * (4 * n) ** 3
-    elif kind == "hamiltonian":
+    if kind in ("gnr", "gnr_schottky"):
+        sig = 2 * 55.0 * (4 * n) ** 3 if kind == "gnr" else 50.0 * n ** 3
+    elif kind in ("hamiltonian", "vacancy", "snw", "gnr_fast", "graphene", "bilayer", "tmd"):
         dec = selfh == "dec" or (selfh is None and gpu)
         sig = 2 * (55.0 * (4 * n) ** 3 if dec else 300.0 * (2 * n) ** 3)
     else:

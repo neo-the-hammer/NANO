@@ -14,7 +14,9 @@ Each device runs through the Python API in four processes, one per mode
 GPU modes solve twice and report the second solve (steady state, what each
 further step of a self-consistent loop costs; it also lets the hybrid
 split adapt).  Devices cover every path and the regimes where each side
-wins: CNT (solver-bound), GNR (decimation-bound), the Hamiltonian path
+wins: CNT (solver-bound), GNR (decimation-bound), Schottky contacts,
+a ribbon with a vacancy, an sp3d5s* silicon nanowire (10 orbitals per
+atom), 2D graphene, bilayer and TMD flakes summed over ky, the Hamiltonian path
 with decimation (eta = 1e-5) and with the CPU-only eigen self-energy
 (eta = 1e-8, where the pipeline matters), plus a structure summed over a
 transverse wave vector (R2's graphene: 184 short solves, where the
@@ -39,7 +41,10 @@ def devices(quick):
         return [("cnt 13x5", {"kind": "cnt", "size": [13, 5.0], "grid": g}),
                 ("gnr 8x5", {"kind": "gnr", "size": [8, 5.0], "grid": g}),
                 ("H 8x24 eta1e-5", {"kind": "hamiltonian", "size": [8, 24], "grid": g, "eta": 1e-5}),
-                ("H 8x24 eta1e-8", {"kind": "hamiltonian", "size": [8, 24], "grid": g, "eta": 1e-8})]
+                ("H 8x24 eta1e-8", {"kind": "hamiltonian", "size": [8, 24], "grid": g, "eta": 1e-8}),
+                ("Si nanowire 3.85x15A", {"kind": "snw", "size": [3.85, 15.0], "grid": [0.05, 9.95, 0.1]}),
+                ("graphene 2D 10nm x8 ky", {"kind": "graphene", "size": [10.0, 8], "grid": [-0.4975, 0.4975, 0.01]}),
+                ("TMD 2D 10nm x8 ky", {"kind": "tmd", "size": [10.0, 8], "grid": g})]
     return [("cnt 10x5", {"kind": "cnt", "size": [10, 5.0], "grid": g}),
             ("cnt 19x10", {"kind": "cnt", "size": [19, 10.0], "grid": g}),
             ("cntmode 19x10", {"kind": "cntmode", "size": [19, 10.0], "grid": g, "nmodes": 6}),
@@ -47,7 +52,14 @@ def devices(quick):
             ("gnr 12x10", {"kind": "gnr", "size": [12, 10.0], "grid": g}),
             ("H 8x40 eta1e-5", {"kind": "hamiltonian", "size": [8, 40], "grid": g, "eta": 1e-5}),
             ("H 16x40 eta1e-5", {"kind": "hamiltonian", "size": [16, 40], "grid": g, "eta": 1e-5}),
-            ("H 16x40 eta1e-8", {"kind": "hamiltonian", "size": [16, 40], "grid": g, "eta": 1e-8})]
+            ("H 16x40 eta1e-8", {"kind": "hamiltonian", "size": [16, 40], "grid": g, "eta": 1e-8}),
+            ("CNT Schottky 19x10", {"kind": "cnt_schottky", "size": [19, 10.0], "grid": g}),
+            ("GNR Schottky 12x10", {"kind": "gnr_schottky", "size": [12, 10.0], "grid": g}),
+            ("vacancy ribbon", {"kind": "vacancy", "size": [0, 0], "grid": g}),
+            ("Si nanowire 7.85x20A", {"kind": "snw", "size": [7.85, 20.0], "grid": [0.05, 9.95, 0.05]}),
+            ("graphene 2D 20nm x32 ky", {"kind": "graphene", "size": [20.0, 32], "grid": [-0.4975, 0.4975, 0.005]}),
+            ("bilayer 2D 15nm x32 ky", {"kind": "bilayer", "size": [15.0, 32], "grid": [-0.4975, 0.4975, 0.005]}),
+            ("TMD 2D 20nm x32 ky", {"kind": "tmd", "size": [20.0, 32], "grid": g})]
 
 
 def steps(ctx):

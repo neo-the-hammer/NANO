@@ -31,7 +31,8 @@ KIND = "correctness"
 
 NATIVE = [("std", 8, 30), ("std", 24, 40), ("lake", 16, 30), ("mode", 12, 30)]
 DECIM = [("gnr", 8), ("hsrc", 8)]
-DEV_TOL = {"cnt": 1e-8, "cntmode": 1e-8, "gnr": 1e-7, "hamiltonian": 1e-5}
+DEV_TOL = {"cnt": 1e-8, "cntmode": 1e-8, "gnr": 1e-7, "hamiltonian": 1e-5, "cnt_schottky": 1e-8,
+           "vacancy": 1e-5, "snw": 1e-7, "graphene": 1e-7, "tmd": 1e-5}
 
 
 def devices(quick):
@@ -39,7 +40,12 @@ def devices(quick):
     return [("cnt", {"kind": "cnt", "size": [10, 2.0], "grid": g}),
             ("cntmode", {"kind": "cntmode", "size": [10, 2.0], "grid": g, "nmodes": 4}),
             ("gnr", {"kind": "gnr", "size": [6, 2.0], "grid": g}),
-            ("hamiltonian", {"kind": "hamiltonian", "size": [5, 12], "grid": g})]
+            ("hamiltonian", {"kind": "hamiltonian", "size": [5, 12], "grid": g}),
+            ("cnt_schottky", {"kind": "cnt_schottky", "size": [10, 2.0], "grid": g}),
+            ("vacancy", {"kind": "vacancy", "size": [0, 0], "grid": [-1.4975, 1.4975, 0.01]}),
+            ("snw", {"kind": "snw", "size": [3.85, 15.0], "grid": [0.05, 9.95, 0.1]}),
+            ("graphene", {"kind": "graphene", "size": [8.0, 6], "grid": [-0.4975, 0.4975, 0.01]}),
+            ("tmd", {"kind": "tmd", "size": [8.0, 6], "grid": [-1.4975, 1.4975, 0.01]})]
 
 
 def steps(ctx):

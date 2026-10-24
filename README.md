@@ -342,7 +342,7 @@ written to `experiments/results/report.html`. See
 |---|---|---|
 | C1 | correctness | NEGF solver alone (std, Lake, mode space) |
 | C2 | correctness | contact self-energy (decimation) alone |
-| C3 | correctness | whole devices: CNT, CNT mode, GNR, Hamiltonian |
+| C3 | correctness | whole devices: CNT, CNT mode, GNR, Hamiltonian, Schottky CNT/GNR, vacancy ribbon, Si nanowire, 2D graphene / bilayer / TMD |
 | A1 | accuracy | eigen vs decimation self-energy vs `eta` |
 | A2 | accuracy | accuracy vs speed, backend x self-energy method |
 | S1 | speed | NEGF solver scaling in `n`, `Nc`, energies per batch |
