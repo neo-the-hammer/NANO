@@ -46,9 +46,26 @@ every table and every figure in one page.
 | S1 | speed | The NEGF solver: time and speedup vs block size n, number of blocks Nc and energies per batch NB. |
 | S2 | speed | The self-energy: time per energy of eigen (CPU), decimation (CPU) and decimation (GPU), vs lead size and batch size. |
 | S3 | speed | Whole devices, CPU vs GPU, with each solve split into self-energy, NEGF solve and the rest. |
+| R1 | correctness | The tutorials in `demo/` run as real simulations on each backend: CNT, GNR, generic Hamiltonian, Laplace + NEGF CNT FET, Poisson-NEGF self-consistent CNT (mode space) and GNR (Schottky contacts) FETs, an Id(Vgs) sweep and a 2D graphene FET Id(Vds) (reduced). Compares every curve and checks the physics (0 ≤ T ≤ channels, current rising with the gate, subthreshold swing ≥ 60 mV/dec). |
+| R2 | correctness | The regression tests behind `test/test.py`, each against the reference data stored in `test/` with the original tolerance, on the CPU and on the GPU: GNR path vs Hamiltonian path, graphene summed over k (`g0.dat`, `g.dat`), bilayer graphene (`carica.*`), sp3d5s* silicon nanowires (`transmission-test-Si*.dat`), sp3d5s* Si/Ge/InAs, a vacancy built two ways. |
+| P1 | correctness | Physics laws with known answers, on each backend: integer T and T(E) = T(-E) at flat band, rigid band shift under a uniform potential, reciprocity under a mirrored potential, charge neutrality, I(0) = 0, monotonic I(Vds), current falling with barrier height. |
 
 Each module in `exps/` documents its cases, metric and pass threshold in
 its docstring (also shown in the report).
+
+**How R1, R2 and P1 are judged.** Each scenario (`sims.py`, one function
+per original script, saying what was changed to run it unattended)
+runs in its own process per backend, with that backend's defaults, as a
+user would run the script. A scenario passes when every curve agrees
+CPU vs GPU within its tolerance and every reference and physics check
+holds on both backends. A check that holds on the CPU and fails on the
+GPU is a FAIL; one that fails on both alike is a WARN, since it says
+nothing about the GPU (an out-of-date reference, or an expectation that
+does not hold for that device). `report.html` lists every check with its
+CPU and GPU error; the terminal shows only those not passing. With
+`--quick` the self-consistent and sweep scenarios are shortened (see
+each scenario's docstring); a full run uses the scripts' own sizes where
+practical.
 
 **How differences are measured.** `max|cpu - gpu| / max(|cpu|, |gpu|)`
 over the whole array (relative to the peak). Element-wise relative
@@ -81,6 +98,8 @@ lead equation equally well.
   one process with identical deterministic inputs. `run_all.py` compiles
   it and links it against the objects `make` left in `src/`, so it runs
   exactly the code the Python module runs.
+- `sims.py` holds the scenarios of R1, R2 and P1; `sim_worker.py` runs one
+  in a scratch directory and counts every NEGF solve.
 - `worker.py` runs one device through the Python API; each backend gets
   its own process, because the backend is chosen once per process
   (`VIDES_GPU`). `VIDES_PROFILE=1` supplies the time breakdown.

@@ -311,6 +311,9 @@ written to `experiments/results/report.html`. See
 | S1 | speed | NEGF solver scaling in `n`, `Nc`, energies per batch |
 | S2 | speed | self-energy time per energy, each method and backend |
 | S3 | speed | whole devices, with time breakdown |
+| R1 | correctness | the tutorials in `demo/` as real simulations, incl. self-consistent FETs and I-V sweeps |
+| R2 | correctness | the regression tests in `test/` against their stored reference data |
+| P1 | correctness | physics laws: integer/symmetric T, band shift, reciprocity, neutrality, I-V behaviour |
 
 **Results on a Tesla T4:** *pending — to be filled in from the first real
 GPU run of the suite.*

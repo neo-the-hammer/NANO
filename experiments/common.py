@@ -158,10 +158,17 @@ def run_device(spec, gpu, selfh=None, repeat=1, timeout=7200):
             info = json.load(f)
     finally:
         os.remove(out)
+    parse_banners(info, proc.stdout, gpu)
+    return info
+
+
+def parse_banners(info, stdout, gpu):
+    """Backend banner, self-energy banner and VIDES_PROFILE lines of a
+    worker's output, into `info`."""
     info["backend"] = ""
     info["profile"] = []
     info["selfh_line"] = ""
-    for line in proc.stdout.splitlines():
+    for line in stdout.splitlines():
         if "NEGF backend" in line and not info["backend"]:
             info["backend"] = line.strip()
         if "Contact self-energy" in line and not info["selfh_line"]:
@@ -171,6 +178,39 @@ def run_device(spec, gpu, selfh=None, repeat=1, timeout=7200):
             info["profile"].append([float(g) for g in m.groups()])
     info["gpu_requested"] = bool(gpu)
     info["gpu_used"] = bool(gpu) and gpu_line_ok(info["backend"])
+
+
+def run_sim(name, gpu, quick, timeout=14400):
+    """Run one scenario of sims.py (an original ViDES script) in a fresh
+    process with the backend fixed by VIDES_GPU, in a scratch directory.
+    Returns the scenario's result dict plus timing and backend fields."""
+    import tempfile
+    env = dict(os.environ)
+    env["VIDES_GPU"] = "1" if gpu else "0"
+    env["VIDES_PROFILE"] = "1"
+    env.pop("VIDES_SELFH", None)
+    env.setdefault("MPLBACKEND", "Agg")
+    env["PYTHONPATH"] = os.pathsep.join(
+        p for p in [SRC, DEMO, ROOT, env.get("PYTHONPATH", "")] if p)
+    work = tempfile.mkdtemp(prefix="vides_sim_")
+    out = os.path.join(work, "result.json")
+    try:
+        t0 = time.time()
+        proc = subprocess.run(
+            [sys.executable, os.path.join(HERE, "sim_worker.py"), name,
+             "1" if quick else "0", out],
+            env=env, capture_output=True, text=True, timeout=timeout, cwd=work)
+        wall = time.time() - t0
+        if not os.path.exists(out):
+            raise RuntimeError("scenario %s (%s) died (rc=%d):\n%s"
+                               % (name, "GPU" if gpu else "CPU", proc.returncode,
+                                  (proc.stdout + proc.stderr)[-2500:]))
+        with open(out) as f:
+            info = json.load(f)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
+    info["process_wall"] = wall
+    parse_banners(info, proc.stdout, gpu)
     return info
 
 
@@ -200,7 +240,7 @@ class CostModel:
         self.n = {}
 
     def _oh(self, cls, gpu):
-        return self.overhead["%s%s" % ("device" if cls.startswith("dev") else "native",
+        return self.overhead["%s%s" % ("device" if cls.startswith(("dev", "sim")) else "native",
                                        "_gpu" if gpu else "")]
 
     def _scale(self, cls):

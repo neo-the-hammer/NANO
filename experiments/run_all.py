@@ -27,6 +27,9 @@ Experiments (see each module in experiments/exps/ for the details):
   S1  NEGF solver speed: scaling in n, Nc, NB                 speed
   S2  self-energy speed: eigen vs decimation, CPU vs GPU      speed
   S3  whole-device speed with time breakdown                  speed
+  R1  original tutorials (demo/) as real simulations          correctness
+  R2  original regression tests (test/) vs stored references  correctness
+  P1  device physics laws (symmetries, I-V behaviour)         correctness
 
 Prerequisite: the module built in src/ (./build.sh --gpu on a GPU
 machine; ./build.sh gives a CPU-only build where GPU columns stay empty).
@@ -54,11 +57,12 @@ from common import Step  # noqa: E402
 import c1_rgf, c2_selfenergy, c3_devices  # noqa: E402,E401
 import a1_selfenergy_accuracy, a2_accuracy_speed  # noqa: E402,E401
 import s1_rgf_scaling, s2_selfenergy_speed, s3_devices_speed  # noqa: E402,E401
+import r1_tutorials, r2_regression, p1_physics  # noqa: E402,E401
 
 EXPERIMENTS = [c1_rgf, c2_selfenergy, c3_devices, a1_selfenergy_accuracy,
                a2_accuracy_speed, s1_rgf_scaling, s2_selfenergy_speed,
-               s3_devices_speed]
-NEEDS_MODULE = {"C3", "A2", "S3"}
+               s3_devices_speed, r1_tutorials, r2_regression, p1_physics]
+NEEDS_MODULE = {"C3", "A2", "S3", "R1", "R2", "P1"}
 
 
 def print_table(cols, rows, out=sys.stdout, indent="   "):
@@ -105,7 +109,7 @@ def fig_png(fig):
     return base64.b64encode(buf.getvalue()).decode()
 
 
-VERDICT_COLOR = {"PASS": "#2e8b57", "WARN": "#c9a227", "FAIL": "#d03b3b",
+VERDICT_COLOR = {"PASS": "#2e8b57", "WARN": "#c9a227", "FAIL": "#d03b3b", "ERROR": "#c9a227",
                  "INFO": "#2a78d6", "NO GPU": "#898781", "SKIPPED": "#898781",
                  "NOT RUN": "#898781"}
 
@@ -145,8 +149,13 @@ def write_report(path, header, results):
         h.append("<p><b>%s</b> — %s</p>" % (r["verdict"], html.escape(r["headline"])))
         if r.get("doc"):
             h.append("<pre>%s</pre>" % html.escape(r["doc"].strip()))
-        t = r.get("table")
-        if t:
+        for note in r.get("notes", []):
+            h.append("<p>%s</p>" % html.escape(note))
+        for t in [r.get("table")] + list(r.get("tables") or []):
+            if not t:
+                continue
+            if t.get("title"):
+                h.append("<p><b>%s</b></p>" % html.escape(t["title"]))
             h.append("<table><tr>%s</tr>" % "".join("<th>%s</th>" % html.escape(str(c)) for c in t["cols"]))
             for row in t["rows"]:
                 h.append("<tr>%s</tr>" % "".join("<td>%s</td>" % html.escape(str(c)) for c in row))
@@ -308,6 +317,17 @@ def report_one(e, recs, ctx, args, nb, log, elapsed, est):
     log("   -> %s  %s" % (res["verdict"], res["headline"]))
     if res.get("table"):
         print_table(res["table"]["cols"], res["table"]["rows"])
+    for note in res.get("notes", []):
+        log("   note: " + note)
+    for t in res.get("tables") or []:
+        # the full check list goes to the report; print only what is not a pass
+        bad = [row for row in t["rows"] if "PASS" not in row]
+        if bad:
+            log("   %s -- not passing (%d of %d; all in report.html):" % (t.get("title", ""), len(bad),
+                                                                         len(t["rows"])))
+            print_table(t["cols"], bad)
+        else:
+            log("   %s: all %d pass (listed in report.html)" % (t.get("title", "checks"), len(t["rows"])))
     for err in res["errors"]:
         log("   ERROR " + err.splitlines()[0][:300])
     if not args.no_plots and recs:
