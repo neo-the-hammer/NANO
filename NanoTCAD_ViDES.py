@@ -886,7 +886,7 @@ class bilayer_graphene:
         # I define the vector of the k-wave vector
         kvect = arange(self.kmin, self.kmax, self.dk)
         # I start defining the Hamiltonian for the bilayer graphene
-        h = zeros((4 * slices + 2 * (slices / 4) - 2, 3), dtype=complex);
+        h = zeros((4 * slices + 2 * (slices // 4) - 2, 3), dtype=complex);
         h[0][0] = 1;
         for i in range(1, 2 * slices + 1):
             h[i][0] = i
@@ -1168,7 +1168,7 @@ class Zincblend:
 
         layers = int(4 * self.zmax / (self.a0) + 1)
 
-        if (rank == 0):
+        if (getattr(self, 'rank', 0) == 0):
             writeout("prima="), layers
 
         if layers % 4 == 1:
@@ -1198,8 +1198,8 @@ class Zincblend:
         self.ics = zeros(self.n_aux * self.Nc_aux);
         self.ipsilon = zeros(self.n_aux * self.Nc_aux);
         self.zeta = zeros(self.n_aux * self.Nc_aux);
-        self.H_aux = zeros((self.Nc_aux * self.n_aux) * ((self.Nc_aux * self.n_aux + 1) / 2) * (2 + 100));
-        self.H = zeros((((self.Nc_aux * self.n_aux) * (self.Nc_aux * self.n_aux + 1) / 2), 2 + 100));
+        self.H_aux = zeros((self.Nc_aux * self.n_aux) * ((self.Nc_aux * self.n_aux + 1) // 2) * (2 + 100));
+        self.H = zeros((((self.Nc_aux * self.n_aux) * (self.Nc_aux * self.n_aux + 1) // 2), 2 + 100));
 
         self.Zinc();
         self.n = int(self.atoms[0]);

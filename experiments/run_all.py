@@ -90,6 +90,9 @@ def calibrate(model, exe, gpu, want_devices, log):
     # GPU classes start from the assumed GPU/CPU ratio.
     model.scale["dev"] = model.scale["rgf"]
     model.scale["dev_gpu"] = model.scale["rgf"] * C.GPU_REL
+    # Scenario steps (R1, R2, P1) carry Colab-CPU seconds x 1e9 as units;
+    # read them at face value until the first scenarios refine the scale.
+    model.scale["sim"] = 1e-9
     if want_devices:
         # A trivial device: its time is Python + module start-up, i.e. the
         # fixed cost of every device process.

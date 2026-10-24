@@ -28,9 +28,9 @@ __doc__ += X.__doc__
 ID = "R2"
 TITLE = "Original regression tests (test/) vs stored references"
 KIND = "correctness"
-SCEN = [("reg_gnr_fast_ohmic", 1e-7, (3, 3)), ("reg_graphene", 1e-8, (30, 30)),
-        ("reg_bilayer", 1e-5, (30, 30)), ("reg_snw", 1e-7, (10, 200)),
-        ("reg_zincblend", 1e-7, (10, 30)), ("reg_hole", 1e-6, (3, 3))]
+SCEN = [("reg_gnr_fast_ohmic", 1e-7, (1, 1)), ("reg_graphene", 1e-8, (13, 13)),
+        ("reg_bilayer", 1e-5, (20, 20)), ("reg_snw", 1e-7, (5, 26)),
+        ("reg_zincblend", 1e-7, (10, 10)), ("reg_hole", 1e-6, (1, 1))]
 
 
 def steps(ctx):

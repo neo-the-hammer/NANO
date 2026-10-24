@@ -61,7 +61,11 @@ CPU vs GPU within its tolerance and every reference and physics check
 holds on both backends. A check that holds on the CPU and fails on the
 GPU is a FAIL; one that fails on both alike is a WARN, since it says
 nothing about the GPU (an out-of-date reference, or an expectation that
-does not hold for that device). `report.html` lists every check with its
+does not hold for that device). Per-atom charge is measured against
+max(peak, 1e-3), since at flat band the net charge is a ~1e-7
+cancellation residue; self-consistent tutorials are held to their own
+stopping threshold (5e-2 V), and `tut_scf_cnt_tight` repeats one converged
+to 1e-6 and is held to 1e-6. `report.html` lists every check with its
 CPU and GPU error; the terminal shows only those not passing. With
 `--quick` the self-consistent and sweep scenarios are shortened (see
 each scenario's docstring); a full run uses the scripts' own sizes where

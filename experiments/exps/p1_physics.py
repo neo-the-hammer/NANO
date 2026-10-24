@@ -24,8 +24,8 @@ __doc__ += X.__doc__
 ID = "P1"
 TITLE = "Device physics laws on CPU and GPU"
 KIND = "correctness"
-SCEN = [("phys_ballistic", 1e-5, (5, 15)), ("phys_shift_reciprocity", 1e-7, (8, 20)),
-        ("phys_neutral", 1e-7, (3, 3)), ("phys_iv", 1e-7, (15, 40))]
+SCEN = [("phys_ballistic", 1e-5, (3, 7)), ("phys_shift_reciprocity", 1e-7, (10, 23)),
+        ("phys_neutral", 1e-7, (7, 7)), ("phys_iv", 1e-7, (20, 35))]
 
 
 def steps(ctx):

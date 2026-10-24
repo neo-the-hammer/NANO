@@ -7,7 +7,9 @@ script).  A scenario is judged on three things:
 
   agreement   every series and scalar, CPU vs GPU: max|cpu - gpu| /
               max(|cpu|, |gpu|) against the scenario's tolerance; WARN up
-              to 100x, FAIL beyond
+              to 100x, FAIL beyond.  Per-atom charge is measured against
+              max(peak, 1e-3), a typical gated per-atom charge, since at
+              flat band the net charge is a ~1e-7 cancellation residue
   references  error against the stored result shipped in test/, on each
               backend, against the original test's own tolerance
   laws        physics checks (0 <= T <= channels, symmetries, monotonic
@@ -19,7 +21,7 @@ FAIL.  One that fails on both backends alike says nothing about the GPU
 device) and is reported as WARN.
 """
 
-from common import Step, run_sim, rel_to_peak, fmt_e, fmt_t, positive, CPU_C, GPU_C, MUTED, finite
+from common import Step, run_sim, fmt_e, fmt_t, positive, CPU_C, GPU_C, MUTED, finite
 
 TINY = 1e-300
 
@@ -61,9 +63,18 @@ def rel(a, b):
 def diffs(c, g):
     """{quantity: rel. diff} over the series and scalars both runs hold."""
     d = {}
+    sc = c.get("scale", {})
     for k in c.get("series", {}):
         if k in g.get("series", {}):
-            d[k] = rel_to_peak(c["series"][k], g["series"][k])
+            a, b = c["series"][k], g["series"][k]
+            if len(a) != len(b):
+                d[k] = float("inf")
+            elif a:
+                peak = max(max(abs(v) for v in a), max(abs(v) for v in b), sc.get(k, 0.0))
+                dm = max(abs(u - v) for u, v in zip(a, b))
+                d[k] = dm / peak if peak > 0 else dm
+            else:
+                d[k] = 0.0
     for k in c.get("scalars", {}):
         if k in g.get("scalars", {}):
             d[k] = rel(c["scalars"][k], g["scalars"][k])

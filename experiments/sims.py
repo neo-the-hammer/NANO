@@ -69,6 +69,13 @@ def law(err, tol, what):
     return {"err": float(err), "tol": float(tol), "what": what}
 
 
+# Per-atom charge is compared against max(peak, CHARGE_SCALE), a typical
+# per-atom charge at a few tenths of a volt of gating: at flat band the net
+# charge is a cancellation residue (~1e-7, phys_neutral), so its own peak
+# is no yardstick.
+CHARGE_SCALE = 1e-3
+
+
 def dev_result(d, name="", nch=None):
     """E, T, charge and current of a solved device, plus the laws every
     coherent two-terminal result obeys: 0 <= T <= channels, finite."""
@@ -80,6 +87,7 @@ def dev_result(d, name="", nch=None):
     out = {"series": {p + "T": lst(T), p + "charge": lst(ch)},
            "x": {p + "T": lst(E)},
            "scalars": {p + "current": I},
+           "scale": {p + "charge": CHARGE_SCALE},
            "laws": {}}
     peak = max(1.0, float(np.max(np.abs(T)))) if T.size else 1.0
     out["laws"][p + "T >= 0"] = law(max(0.0, -float(np.min(T))) / peak if T.size else 0, 1e-6,
@@ -211,6 +219,34 @@ def tut_scf_cnt(quick):
     p.modespace = "yes"
     p.normpoisson = 1e-1
     p.normd = 5e-2
+    V.solve_self_consistent(grid, p, CNT)
+    return _scf_out(CNT, grid, p, 2 * CNT.Nmodes)
+
+
+def tut_scf_cnt_tight(quick):
+    """tut_scf_cnt (demo/tutorial_selfconsistent.py, 10 nm) converged
+    tightly: Poisson and self-consistency thresholds 1e-6 instead of
+    1e-1 / 5e-2.  The tutorial's loose thresholds let CPU and GPU stop at
+    slightly different points; converged, both must land on the same
+    solution to near round-off."""
+    V = load()
+    x1 = np.array([-2, -1.70172, -1.43483, -1.19604, -0.982388, -0.791223, -0.620181, 0])
+    x2 = np.array([0.620181, 0.791223, 0.982388, 1.19604, 1.43483, 1.70172, 2])
+    CNT = V.nanotube(13, 10)
+    zg = np.array([-0.072, float(np.max(CNT.z)) + 0.072])
+    grid = V.grid3D(np.concatenate((x1, x2)), np.concatenate((x1[:-1], x2)), zg, CNT.x, CNT.y, CNT.z)
+    top = V.gate("hex", grid.xmax, grid.xmax, grid.ymin, grid.ymax, grid.zmin, grid.zmax)
+    bot = V.gate("hex", grid.xmin, grid.xmin, grid.ymin, grid.ymax, grid.zmin, grid.zmax)
+    top.Ef, bot.Ef = -0.6, 0
+    CNT.Nmodes = 2
+    CNT.mu2 = -0.5
+    ox = V.region("hex", -2, 2, -2, 2, grid.zmin, grid.zmax)
+    ox.eps = 3.9
+    p = V.interface3D(grid, top, bot, ox)
+    p.normpoisson = 1e-6
+    V.solve_Poisson(grid, p)
+    p.modespace = "yes"
+    p.normd = 1e-6
     V.solve_self_consistent(grid, p, CNT)
     return _scf_out(CNT, grid, p, 2 * CNT.Nmodes)
 
@@ -618,8 +654,10 @@ def phys_ballistic(quick):
     """Perfect, flat-band wires (Phi = 0): the transmission is the number
     of open modes, an integer, and the nearest-neighbour pz lattice is
     bipartite, so T(E) = T(-E).  CNT (13,0), GNR n=7 and the 5-wide
-    ribbon through the Hamiltonian path.  Points within 10 meV of a
+    ribbon through the Hamiltonian path.  Points within 25 meV of a
     subband edge (where T jumps) are excluded from the integer test."""
+    # (25 meV: the T4 run showed ~3e-3 deviations right next to the edges
+    # on both backends alike, i.e. eta broadening, not the GPU)
     out = {"series": {}, "x": {}, "scalars": {}, "laws": {}}
     L = 3.0 if quick else 6.0
     for kind, size in (("cnt", (13, L)), ("gnr", (7, L)), ("hamiltonian", (5, 24 if quick else 48))):
@@ -630,7 +668,7 @@ def phys_ballistic(quick):
         jump = np.zeros(len(T), bool)
         step = np.nonzero(np.diff(Tr) != 0)[0]
         for s in step:
-            jump[max(0, s - 2):s + 4] = True
+            jump[max(0, s - 5):s + 7] = True
         out["laws"][kind + ": T integer"] = law(float(np.max(np.abs(T - Tr)[~jump])) if (~jump).any() else 0,
                                                 1e-4, "flat band: T counts open modes")
         out["laws"][kind + ": T(E) = T(-E)"] = law(float(np.max(np.abs(T - T[::-1]))) / max(1.0, float(np.max(T))),
@@ -756,7 +794,8 @@ def phys_iv(quick):
 
 
 SCENARIOS = {f.__name__: f for f in [
-    tut_cnt, tut_gnr, tut_hamilton, tut_poisson_cnt, tut_scf_cnt, tut_scf_gnr_schottky,
+    tut_cnt, tut_gnr, tut_hamilton, tut_poisson_cnt, tut_scf_cnt, tut_scf_cnt_tight,
+    tut_scf_gnr_schottky,
     tut_idvgs, tut_graphene_idvds,
     reg_gnr_fast_ohmic, reg_graphene, reg_bilayer, reg_snw, reg_zincblend, reg_hole,
     phys_ballistic, phys_shift_reciprocity, phys_neutral, phys_iv]}
