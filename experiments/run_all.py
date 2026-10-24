@@ -331,7 +331,7 @@ def report_one(e, recs, ctx, args, nb, log, elapsed, est):
         log("   note: " + note)
     for t in res.get("tables") or []:
         # the full check list goes to the report; print only what is not a pass
-        bad = [row for row in t["rows"] if "PASS" not in row]
+        bad = [row for row in t["rows"] if "PASS" not in row and "INFO" not in row]
         if bad:
             log("   %s -- not passing (%d of %d; all in report.html):" % (t.get("title", ""), len(bad),
                                                                          len(t["rows"])))

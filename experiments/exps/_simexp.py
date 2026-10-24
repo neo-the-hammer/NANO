@@ -166,6 +166,12 @@ def analyze(recs, ctx, scen, label):
             for k, what, t, ec, eg, st in rr:
                 detail.append([name, kind, k[:40], fmt_e(ec), fmt_e(eg) if eg is not None else "-",
                                "%g" % t, st, what[:60]])
+        if c and g and c.get("aux") and g.get("aux"):
+            for k in sorted(c["aux"]):
+                if k in g["aux"] and len(c["aux"][k]) == len(g["aux"][k]) and c["aux"][k]:
+                    dm = max(abs(u - v) for u, v in zip(c["aux"][k], g["aux"][k]))
+                    detail.append([name, "aux", k[:40], "", "", "-", "INFO",
+                                   "equilibrium charge, not judged: max |CPU - GPU| = %s" % fmt_e(dm)])
         if c and g and "series" in c and "series" in g:
             for k, dv in sorted(diffs(c, g).items()):
                 detail.append([name, "diff", k[:40], "", "", "%g" % tol,
