@@ -208,6 +208,12 @@ def main():
                      r["speedup"]))
 
     if args.show:
+        # A notebook kernel can hold stray empty figures (NanoTCAD_ViDES
+        # does "from pylab import *"); close them so only this one shows.
+        for num in plt.get_fignums():
+            f = plt.figure(num)
+            if f is not fig and not f.axes:
+                plt.close(f)
         plt.show()
     return 0
 
