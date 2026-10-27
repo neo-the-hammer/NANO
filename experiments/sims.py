@@ -813,9 +813,130 @@ def phys_iv(quick):
     return out
 
 
+def reg_zincblend_field(quick):
+    """test/script_test_sp3d5ss_field_auto.py: the Zincblend wires of
+    reg_zincblend with a +-V/2 bias (V = Egap + 0.3 eV) across a linear
+    potential drop, E from the band edge Ei to Ei + 0.1 eV in 1 meV
+    steps, eta 1e-8, vs the stored test/transmission-test-{Si,InAs,Ge}-
+    field.dat (tol 1e-5).  Python 3 port; the potential is built exactly
+    as the script does (linear drop on the active slices, mu1 / mu2 on the
+    contact slices)."""
+    V = load()
+    # material: (edge, Egap, Ei) as in the script
+    params = {"Si": (3.85, 6.00, 1.00), "InAs": (4.29, 4.465433, 1.00), "Ge": (4.00, 5.2, 1.07)}
+    out = {"series": {}, "x": {}, "scalars": {}, "laws": {}, "refs": {}}
+    for mat in ("Si", "InAs", "Ge"):
+        edge, egap, ei = params[mat]
+        Voltage = egap + 0.3
+        try:
+            H = V.Zincblend(mat, 0, 1, edge, Voltage / 1.0)
+        except Exception as e:
+            raise Skip("Zincblend(%r) fails under this Python: %s: %s" % (mat, type(e).__name__, e))
+        H.Elower, H.Eupper, H.dE, H.eta = ei, ei + 0.1, 0.001, 1e-8
+        v = Voltage / 2
+        H.mu1, H.mu2 = v, -v
+        n, Nc = H.n, H.Nc
+        H.Phi = H.mu1 * (1 - 2 * ((H.z - H.a0) / H.L))
+        H.Phi = V.ciccione(H.Phi, n, Nc, H.z, H.a0)
+        H.z = V.ciccione(H.z, n, Nc, H.z, H.a0)
+        for i in range(4 * n):
+            H.Phi[i] = H.Phi[0]
+        for i in range(Nc - 4, Nc):
+            for j in range(n):
+                H.Phi[i * n + j] = H.mu2
+        for i in range(4, Nc - 4):
+            for j in range(n):
+                H.Phi[i * n + j] = H.mu1 * (1 - 2 * ((H.z[i * n] - 2 * H.a0) / (H.L - 2 * H.a0)))
+        H.charge_T()
+        out = merge(out, dev_result(H, mat))
+        a = np.loadtxt(os.path.join(TEST, "transmission-test-%s-field.dat" % mat))
+        out["refs"]["T %s field" % mat] = ref_maxabs(H.T, a[:, 1], 1e-5, "vs stored result (original test)")
+    return out
+
+
+def reg_wire2(quick):
+    """test/test_wire2.py: a 10.5 A long, 3.85 A wide Si wire (sp3d5s*,
+    10 orbitals per atom) through the Hamiltonian path, E in [0, 10] step
+    0.1.  The original sets eta = 1e-12, which no solver resolves (the
+    broadening is below round-off of the energy grid); eta 1e-8 here, as in
+    the other wire tests.  No stored reference for this length: judged by
+    CPU-vs-GPU agreement and the transmission laws."""
+    V = load()
+    x, y, z = V.atoms_coordinates_nanowire(np.array([5.43, 0, 1, 3.85, 10.5]))
+    r = V.create_H_from_xyz(np.asarray(x), np.asarray(y), np.asarray(z), 10, V.onsite_Si, V.thop_Si, 3, 4)
+    S = V.Hamiltonian(r[1], r[2])
+    S.H = r[0]
+    S.Elower, S.Eupper, S.dE, S.eta = 0, 10, 0.1, 1e-8
+    S.charge_T()
+    out = dev_result(S, "wire", equilibrium=True)
+    out["info"] = {"n x Nc": "%d x %d" % (S.n, S.Nc)}
+    return out
+
+
+def reg_scf_graphene(quick):
+    """test/test_selfconsistent_graphene.py: double-gate graphene flake
+    (30 nm), self-consistent over ky in [7, 10] (Nk = 30; quick 10), top
+    gate -0.6 V, doped reservoirs.  The original starts from a stored
+    Phi.MPI that is not in the repository; the starting potential is the
+    Poisson solution instead.  MPI_kt left off.  Poisson 1e-1, normd 5e-2
+    as written."""
+    V = load()
+    xg = V.nonuniformgrid(np.array([-1, 0.2, 0, 0.05, 1, 0.2]))
+    F = V.graphene(30)
+    Nk = 10 if quick else 30
+    F.kmin, F.kmax = 7, 10
+    F.dk = float(F.kmax - F.kmin) / Nk
+    grid = V.grid2D(xg, F.y, F.x, F.y)
+    top = V.gate("hex", grid.xmax, grid.xmax, 10, 20)
+    bot = V.gate("hex", grid.xmin, grid.xmin, 10, 20)
+    top.Ef, bot.Ef = -0.6, 0
+    ox = V.region("hex", grid.xmin, grid.xmax, grid.ymin, grid.ymax)
+    ox.eps = 3.9
+    p = V.interface2D(grid, top, bot, ox)
+    p.normpoisson = 1e-3
+    V.solve_Poisson(grid, p)
+    V.dope_reservoir(grid, p, F, 5e-3, np.array([-1, 1, grid.ymin, 10]))
+    V.dope_reservoir(grid, p, F, 5e-3, np.array([-1, 1, 20, grid.ymax]))
+    p.normpoisson = 1e-1
+    p.normd = 5e-2
+    V.solve_self_consistent(grid, p, F)
+    out = dev_result(F)
+    out["series"]["Phi on channel"] = lst(p.Phi[grid.swap])
+    out["info"] = {"SCF iterations": solves(), "ky points": Nk}
+    return out
+
+
+def tut_gnrphonon(quick):
+    """demo/tutorial_GNRphonon.py: electron and phonon dispersions of a
+    10-dimer ribbon and the acoustic / optical absorption and emission
+    rates.  Pure CPU code with no NEGF solve, so the GPU build must leave
+    it untouched: the results of a GPU-enabled process must equal the
+    CPU-only ones exactly."""
+    V = load()
+    a = V.GNRphonon(10)
+    a.electron_GNR()
+    a.phonon_GNR()
+    a.rateACABS()
+    a.rateACEM()
+    a.rateOPTABS()
+    a.rateOPTEM()
+    a.phonon_graphene()
+    ser = {"electron bands": a.energyE, "phonon branches": a.energyP2D, "AC absorption": a.rateAA,
+           "AC emission": a.rateAE, "optical absorption": a.rateOA, "optical emission": a.rateOE,
+           "graphene phonons": a.Egraphene}
+    out = {"series": {k: lst(v) for k, v in ser.items()}, "scalars": {}, "laws": {}, "cpu_only": True}
+    allv = np.concatenate([np.asarray(v, float).ravel() for v in ser.values()])
+    out["laws"]["finite"] = law(int(np.sum(~np.isfinite(allv))), 0.5, "no NaN/inf in any dispersion or rate")
+    out["laws"]["rates >= 0"] = law(max(0.0, -float(min(np.min(a.rateAA), np.min(a.rateAE),
+                                                           np.min(a.rateOA), np.min(a.rateOE)))),
+                                    1e-12, "scattering rates are never negative")
+    return out
+
+
 SCENARIOS = {f.__name__: f for f in [
     tut_cnt, tut_gnr, tut_hamilton, tut_poisson_cnt, tut_scf_cnt, tut_scf_cnt_tight,
     tut_scf_gnr_schottky,
     tut_idvgs, tut_graphene_idvds,
     reg_gnr_fast_ohmic, reg_graphene, reg_bilayer, reg_snw, reg_zincblend, reg_hole,
+    reg_zincblend_field, reg_wire2, reg_scf_graphene, tut_gnrphonon,
     phys_ballistic, phys_shift_reciprocity, phys_neutral, phys_iv]}

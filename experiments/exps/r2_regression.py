@@ -15,6 +15,10 @@ before the GPU code existed.
                                                      the Zincblend class does not
                                                      run under Python 3)
   reg_hole            test/test_hole.py              a vacancy built two ways
+  reg_zincblend_field test/script_test_sp3d5ss_field_auto.py   the same wires under
+                                                     bias, vs transmission-test-*-field.dat
+  reg_wire2           test/test_wire2.py             a short Si wire, CPU vs GPU
+  reg_scf_graphene    test/test_selfconsistent_graphene.py  graphene flake, SCF over ky
 
 Tolerances CPU vs GPU: 1e-8 where both use the eigen self-energy (eta <
 1e-6), 1e-7 with GPU decimation.  reg_bilayer: 5e-5, the original test's
@@ -32,7 +36,9 @@ TITLE = "Original regression tests (test/) vs stored references"
 KIND = "correctness"
 SCEN = [("reg_gnr_fast_ohmic", 1e-7, (1, 1)), ("reg_graphene", 1e-8, (13, 13)),
         ("reg_bilayer", 5e-5, (30, 30)), ("reg_snw", 1e-7, (5, 26)),
-        ("reg_zincblend", 1e-7, (10, 10)), ("reg_hole", 1e-6, (1, 1))]
+        ("reg_zincblend", 1e-7, (10, 10)), ("reg_hole", 1e-6, (1, 1)),
+        ("reg_zincblend_field", 1e-7, (20, 20)), ("reg_wire2", 1e-7, (5, 5)),
+        ("reg_scf_graphene", 5e-2, (40, 120))]
 
 
 def steps(ctx):

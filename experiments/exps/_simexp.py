@@ -120,7 +120,7 @@ def judge(name, tol, c, g):
               if d else (None, 0.0))
     refs, laws = checks(c, g, "refs"), checks(c, g, "laws")
     note = ""
-    if not g.get("gpu_used"):
+    if not g.get("gpu_used") and not g.get("cpu_only"):
         return "NO GPU", wq, wd, refs, laws, "GPU run fell back to the CPU"
     v = "PASS" if finite(wd) and wd < tol else ("WARN" if finite(wd) and wd < 100 * tol else "FAIL")
     st = [r[-1] for r in refs + laws]

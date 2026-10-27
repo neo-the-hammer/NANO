@@ -19,6 +19,10 @@ self-consistent loops whose answer depends on every solve along the way.
                                                             NEGF per ky (reduced)
 
   tut_scf_cnt_tight     tut_scf_cnt converged to 1e-6       SCF, tight
+  tut_gnrphonon         demo/tutorial_GNRphonon.py          phonon dispersions and
+                                                            rates (CPU code, no NEGF:
+                                                            the GPU build must not
+                                                            change it; tol 1e-12)
 
 Tolerances: 1e-8 same arithmetic; 1e-7 with GPU decimation; 1e-5 where the
 backends use different self-energy methods (tut_hamilton).  The
@@ -45,7 +49,7 @@ SCEN = [("tut_cnt", 1e-8, (2, 2)), ("tut_gnr", 1e-7, (1, 1)), ("tut_hamilton", 1
         ("tut_poisson_cnt", 1e-8, (9, 9)), ("tut_scf_cnt", 5e-2, (13, 13)),
         ("tut_scf_cnt_tight", 1e-6, (40, 40)),
         ("tut_scf_gnr_schottky", 5e-2, (11, 11)), ("tut_idvgs", 5e-2, (35, 63)),
-        ("tut_graphene_idvds", 5e-2, (60, 760))]
+        ("tut_graphene_idvds", 5e-2, (60, 760)), ("tut_gnrphonon", 1e-12, (3, 3))]
 
 
 def steps(ctx):
