@@ -9,6 +9,7 @@ into the working directory).  Counts and times every NEGF solve by
 wrapping the solver entry points of the device classes.
 """
 
+import faulthandler
 import json
 import os
 import sys
@@ -41,6 +42,7 @@ def instrument(V):
 
 
 def main():
+    faulthandler.enable()      # a crash inside the C/Fortran code names the Python line
     name, quick, out = sys.argv[1], sys.argv[2] == "1", sys.argv[3]
     V = sims.load()
     instrument(V)
