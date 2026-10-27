@@ -295,6 +295,40 @@ removes it. `test_gpu_vs_cpu.py` keeps such a case as a diagnostic
 
 Speed is measured with `test/benchmark_gpu.py` (below).
 
+### When the GPU helps and when it does not
+
+Measured on a Colab T4 (2 CPU threads): the whole experiment suite agrees
+between CPU and GPU, and large devices are much faster on the GPU.
+
+| Device | CPU → GPU |
+|---|---|
+| CNT 19×10, CNT Schottky | 8–9 s → 0.8 s (about 11×) |
+| GNR 12×10 | 17.7 s → 1.7 s (about 10×) |
+| Bare solver, n = 32 | 10 s → 0.24 s (42×) |
+| Graphene I–V tutorial, 1617 solves | 13 min 47 s → 2 min 23 s (5.8×) |
+| Hamiltonian / nanowire devices | 1.0–1.6× |
+| Vacancy ribbon, bilayer flake, tiny single solves | 0.1–0.9× (GPU is slower) |
+
+Why small problems do not gain:
+
+- Every process pays about 0.3–0.4 s once to start CUDA (context, cuBLAS
+  handle, buffers). A solve that takes 20–70 ms on the CPU cannot make
+  that back.
+- Blocks of 5–16 orbitals are too small to fill the GPU, and the T4 runs
+  FP64 at 1/32 of its FP32 rate, so the CPU wins on such matrices.
+- On the Hamiltonian path 83–93% of the GPU time is the contact
+  self-energy, which costs about as much per energy as the CPU's eigen
+  method. Larger leads, or many devices or k-points per batch, give the GPU
+  more work per energy.
+- The hybrid CPU+GPU split is a median 1.08× faster than GPU only, but its
+  first batch only measures the split, and when both sides take about equal
+  time it can be slightly slower (0.9–1.0×). Colab's two CPU threads are
+  one physical core, so thread scaling there is only 1.0–1.2×; a machine
+  with real cores gains more.
+
+If a run is dominated by many tiny solves, set `VIDES_GPU=0` to stay on
+the CPU.
+
 ### Benchmarking
 
 ```bash
