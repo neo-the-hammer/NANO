@@ -36,6 +36,15 @@ c     #hamie1((nlay-6)*natol*10,(nlay-6)*natol*10)
 c
       q=1.60217733d-19
 c
+c     pot (the on-site potential) is never read in: its potential.dat
+c     input is commented out below, so it has to start at zero.  It is a
+c     local array, so without this it holds whatever was on the stack.
+      do i=1,nlay
+         do j=1,natol
+            pot(i,j)=0.0d0
+         end do
+      end do
+c
       open(unit=10,file='nalayer.dat',status='unknown')
       read(10,*) nat
 c     total number of atoms
