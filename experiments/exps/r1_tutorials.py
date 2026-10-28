@@ -29,6 +29,10 @@ self-consistent loops whose answer depends on every solve along the way.
   tut_silicene_nr       tutorial 18 (module_NR_silicene.py) Id(Vgs), silicene ribbon FET
   tut_snw_multiscale    tutorial 19 (script.zip)            ab-initio Si nanowire FET
                                                             (data in experiments/data/)
+  tut_gnr_fluorine      tutorial 14 (GNR_fluorine_FET.py)   ab-initio fluorinated GNR
+                                                            FET; skipped until
+                                                            ab_initio/run_tutorial14.py
+                                                            has produced its data
   tut_gnrphonon         demo/tutorial_GNRphonon.py          phonon dispersions and
                                                             rates (CPU code, no NEGF:
                                                             the GPU build must not
@@ -63,7 +67,8 @@ SCEN = [("tut_cnt", 1e-8, (2, 2)), ("tut_gnr", 1e-7, (1, 1)), ("tut_hamilton", 1
         ("tut_utb", 1e-9, (2, 3)), ("tut_qm1d", 1e-12, (3, 3)), ("tut_tob", 1e-12, (3, 3)),
         ("tut_tmd", 5e-2, (40, 300)), ("tut_silicene_fet", 5e-2, (60, 400)),
         ("tut_bilayer_fet", 5e-2, (60, 500)),
-        ("tut_silicene_nr", 5e-2, (60, 400)), ("tut_snw_multiscale", 5e-2, (60, 400))]
+        ("tut_silicene_nr", 5e-2, (60, 400)), ("tut_snw_multiscale", 5e-2, (60, 400)),
+        ("tut_gnr_fluorine", 5e-2, (60, 300))]
 
 
 def steps(ctx):

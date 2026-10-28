@@ -1309,6 +1309,78 @@ def tut_snw_multiscale(quick):
     return out
 
 
+def tut_gnr_fluorine(quick):
+    """Tutorial 14 (GNR_fluorine_FET.py): a double-gate FET on a fluorinated
+    12-AGNR whose Hamiltonian (28 Wannier orbitals per slice, 32 slices)
+    comes from Quantum ESPRESSO and Wannier90 (experiments/ab_initio/
+    run_tutorial14.py writes Wannier2ViDES.H, Wannier2ViDES.xyz and n_Nc.dat
+    to experiments/data/gnr_tutorial14).  Skipped until those files exist.
+    As the script: bands shifted by 3.42809 eV, E in [-0.5, 0.5], mu1 = 0,
+    mu2 = -0.3, top and bottom gates over z = 2..12 nm, source and drain
+    gates at -0.5 eV, Poisson 1e-1, normd 3e-2.  dE = 5 meV (the script's 1
+    meV) and Vgs 0, 0.5, 1.0 V (quick: 0.5 V)."""
+    V = load()
+    d = os.path.join(HERE, "data", "gnr_tutorial14")
+    need = [os.path.join(d, f) for f in ("Wannier2ViDES.H", "Wannier2ViDES.xyz")]
+    if not all(os.path.exists(f) for f in need):
+        raise Skip("the Quantum ESPRESSO / Wannier90 data of tutorial 14 are not in "
+                   "experiments/data/gnr_tutorial14 (run experiments/ab_initio/run_tutorial14.py)")
+    a = np.loadtxt(need[0])
+    h = np.array(a, dtype=complex)
+    if a.ndim == 2 and a.shape[1] == 4:           # real and imaginary parts in columns 3 and 4
+        h[:, 2] = h[:, 2] + h[:, 3] * 1j
+        h = h[:, 0:3].copy()
+    n, Nc = 28, 32
+    nn = os.path.join(d, "n_Nc.dat")
+    if os.path.exists(nn):
+        v = np.loadtxt(nn)
+        n, Nc = int(v[0]), int(v[1])
+    GNR = V.Hamiltonian(n, Nc)
+    h[1:n * Nc + 1, 2] = h[1:n * Nc + 1, 2] + 3.42809
+    GNR.H = h
+    GNR.dE = 5e-3
+    GNR.Phi = np.zeros(n * Nc)
+    GNR.Ei = np.zeros(n * Nc)
+    b = np.loadtxt(need[1])
+    GNR.x = np.around(b[:, 0] / 10.0, 2)
+    GNR.y = np.around(b[:, 1] / 10.0, 2)
+    GNR.z = np.around(b[:, 2] / 10.0, 2)
+    x = V.nonuniformgrid(np.array([-1, 0.4, 0, 0.1, 1, 0.4]))
+    y1 = V.nonuniformgrid(np.array([-1, 0.4, 0, 0.1]))
+    y2 = V.nonuniformgrid(np.array([np.max(GNR.y), 0.1, np.max(GNR.y) + 1, 0.4]))
+    y = np.concatenate((y1, y2))
+    grid = V.grid3D(x, y, GNR.z, GNR.x, GNR.y, GNR.z)
+    top = V.gate("hex", grid.xmax, grid.xmax, grid.ymin, grid.ymax, 2, 12)
+    bot = V.gate("hex", grid.xmin, grid.xmin, grid.ymin, grid.ymax, 2, 12)
+    src = V.gate("hex", -0.1, 0.1, np.min(GNR.y), np.max(GNR.y), -1, 2)
+    drn = V.gate("hex", -0.1, 0.1, np.min(GNR.y), np.max(GNR.y), 12, 15)
+    GNR.mu1, GNR.mu2 = 0.0, -0.3
+    offset = 0.5
+    top.Ef = bot.Ef = 0
+    src.Ef = -offset
+    drn.Ef = -offset + GNR.mu2
+    sio2 = V.region("hex", grid.xmin, grid.xmax, grid.ymin, grid.ymax, grid.zmin, grid.zmax)
+    sio2.eps = 3.9
+    p = V.interface3D(grid, top, bot, src, drn, sio2)
+    V.solve_Poisson(grid, p)
+    GNR.Elower, GNR.Eupper = -0.5, 0.5
+    vgs = [0.5] if quick else [0.0, 0.5, 1.0]
+    cur, iters = [], []
+    for v in vgs:
+        top.Ef = bot.Ef = -v
+        V.set_gate(p, top)
+        V.set_gate(p, bot)
+        p.normpoisson = 1e-1
+        p.normd = 3e-2
+        n0 = solves()
+        V.solve_self_consistent(grid, p, GNR)
+        iters.append(solves() - n0)
+        cur.append(float(GNR.current()))
+    out = _fet2d_result(GNR, grid, p, cur, iters, "Vgs", vgs)
+    out["info"]["ribbon"] = "%d orbitals x %d slices" % (n, Nc)
+    return out
+
+
 SCENARIOS = {f.__name__: f for f in [
     tut_cnt, tut_gnr, tut_hamilton, tut_poisson_cnt, tut_scf_cnt, tut_scf_cnt_tight,
     tut_scf_gnr_schottky,
@@ -1316,5 +1388,5 @@ SCENARIOS = {f.__name__: f for f in [
     reg_gnr_fast_ohmic, reg_graphene, reg_bilayer, reg_snw, reg_zincblend, reg_hole,
     reg_zincblend_field, reg_wire2, reg_scf_graphene, tut_gnrphonon,
     tut_bilayer_fet, tut_silicene_fet, tut_tmd, tut_utb, tut_qm1d, tut_tob,
-    tut_silicene_nr, tut_snw_multiscale,
+    tut_silicene_nr, tut_snw_multiscale, tut_gnr_fluorine,
     phys_ballistic, phys_shift_reciprocity, phys_neutral, phys_iv]}
