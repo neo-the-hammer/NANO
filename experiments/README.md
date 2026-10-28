@@ -115,6 +115,14 @@ lead equation equally well.
   hybrid method.
 - `sims.py` holds the scenarios of R1, R2 and P1; `sim_worker.py` runs one
   in a scratch directory and counts every NEGF solve.
+- `data/` holds inputs of tutorial scenarios (`snw_tutorial19/`: the ab-initio
+  silicon nanowire Hamiltonian of tutorial 19; `gnr_tutorial14/`: filled by
+  `ab_initio/run_tutorial14.py`, which runs Quantum ESPRESSO and Wannier90
+  as tutorial 14 does).
+- `diag_zincblend.py` builds one Zincblend wire under several settings and
+  prints a checksum of the Hamiltonian and of T per run. It found that the
+  wire builder read uninitialised memory; every variant must now print
+  the same checksum.
 - `worker.py` runs one device through the Python API (twelve device kinds, listed in its docstring); each backend gets
   its own process, because the backend is chosen once per process
   (`VIDES_GPU`). `VIDES_PROFILE=1` supplies the time breakdown.
