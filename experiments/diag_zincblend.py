@@ -23,16 +23,24 @@ import numpy as np
 import NanoTCAD_ViDES as V
 t = time.time()
 H = V.Zincblend("Si", 0, 1, 3.85, 0.0)
-print("built: n=%d Nc=%d orbitals=%d  %.1fs" % (H.n, H.Nc, int(np.real(H.H[0, 0])), time.time() - t), flush=True)
+h = np.asarray(H.H)
+print("built: n=%d Nc=%d orbitals=%d rows=%d  %.1fs" % (H.n, H.Nc, int(np.real(h[0, 0])), h.shape[0], time.time() - t), flush=True)
+print("H checksum: |H|=%.10g  sum=%.10g  nan=%d" % (np.abs(h).sum(), np.real(h).sum(), int(np.isnan(h).sum())), flush=True)
 H.Elower, H.Eupper, H.dE, H.eta = 0, 10, 0.1, 1e-8
 H.mu1 = H.mu2 = 0.0
 t = time.time()
 H.charge_T()
-print("solved in %.2fs, max T = %.4f" % (time.time() - t, float(np.max(H.T[:101]))), flush=True)
+T = np.asarray(H.T[:101], float)
+ref = np.loadtxt(os.path.join(os.environ["ROOT"], "test", "transmission-test-Si.dat"))[:, 1]
+m = min(len(ref), len(T))
+print("solved in %.2fs, max T = %.4f, T checksum %.8g, max|T - stored| = %.3g, non-integer T at %d of %d energies"
+      % (time.time() - t, T.max(), T.sum(), np.abs(T[:m] - ref[:m]).max(), int(np.sum(np.abs(T - np.round(T)) > 1e-3)), len(T)), flush=True)
 """
 
 VARIANTS = [
     ("CPU only", {"VIDES_GPU": "0"}),
+    ("CPU only, again", {"VIDES_GPU": "0"}),
+    ("CPU only, 1 thread", {"VIDES_GPU": "0", "VIDES_THREADS": "1"}),
     ("GPU, defaults", {"VIDES_GPU": "1"}),
     ("GPU, pipeline off", {"VIDES_GPU": "1", "VIDES_PIPELINE": "0"}),
     ("GPU, hybrid off", {"VIDES_GPU": "1", "VIDES_HYBRID": "0"}),
@@ -51,7 +59,7 @@ def main():
             p = subprocess.run([sys.executable, "-c", CODE], env=env, capture_output=True,
                                text=True, timeout=lim, cwd=os.path.join(ROOT, "src"))
             out = (p.stdout + p.stderr).strip().splitlines()
-            keep = [l for l in out if l.startswith(("built", "solved", "File", "Thread", "Fatal", "Current"))
+            keep = [l for l in out if l.startswith(("built", "H check", "solved", "File", "Thread", "Fatal", "Current"))
                     or "Segmentation" in l]
             status = "ok" if p.returncode == 0 else "rc=%d" % p.returncode
         except subprocess.TimeoutExpired:
