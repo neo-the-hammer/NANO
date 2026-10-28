@@ -59,13 +59,13 @@ def main():
             p = subprocess.run([sys.executable, "-c", CODE], env=env, capture_output=True,
                                text=True, timeout=lim, cwd=os.path.join(ROOT, "src"))
             out = (p.stdout + p.stderr).strip().splitlines()
-            keep = [l for l in out if l.startswith(("built", "H check", "solved", "File", "Thread", "Fatal", "Current"))
+            keep = [l for l in out if l.startswith(("built", "H checksum", "solved", "File", "Thread", "Fatal", "Current"))
                     or "Segmentation" in l]
             status = "ok" if p.returncode == 0 else "rc=%d" % p.returncode
         except subprocess.TimeoutExpired:
             keep, status = [], "HUNG"
         print("%-32s %s" % (name, status))
-        for l in keep[-6:]:
+        for l in keep[-8:]:
             print("    " + l[:160])
     return 0
 
