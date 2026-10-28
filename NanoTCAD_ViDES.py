@@ -1348,13 +1348,14 @@ def ciccione(vettore, n, Nc, z, a0):
     array2 = []
     for i in range(Nc):
         k = 0;
+        start = int(sum(aux[:i]))    # sum([]) is the float 0.0, not a valid index
         if (aux[i] == n):
-            for j in arange(sum(aux[:i]), sum(aux[:i]) + n):
+            for j in range(start, start + n):
                 array2.append(vettore[j])
         else:
-            for j in arange(sum(aux[:i]), sum(aux[:i]) + aux[i]):
+            for j in range(start, start + aux[i]):
                 array2.append(vettore[j]);
-            for j in arange(sum(aux[:i]) + aux[i], sum(aux[:i]) + n):
+            for j in range(start + aux[i], start + n):
                 array2.append(0)
 
     return array(array2, dtype=float);
