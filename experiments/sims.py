@@ -1194,6 +1194,121 @@ def tut_tob(quick):
     return out
 
 
+def tut_silicene_nr(quick):
+    """Tutorial 18 (NR_Silicene_script.txt, module_NR_silicene): transfer
+    characteristic of a 6-atom-wide silicene nanoribbon FET (3D Poisson +
+    NEGF), double gate, doped reservoirs, mu1 = 0, mu2 = -0.3.  The script
+    as written: 30 nm, dE = 1 meV, Vgs 0..1 V in 0.05 V steps; here dE =
+    5 meV and Vgs 0, 0.25, 0.5, 0.75, 1.0 V (quick: 10 nm, Vgs 0 and 0.5 V),
+    gates over the middle third."""
+    V = load()
+    from module_NR_silicene import NR_silicene
+    L = 10.0 if quick else 30.0
+    vgs = [0.0, 0.5] if quick else [0.0, 0.25, 0.5, 0.75, 1.0]
+    NR = NR_silicene(6, L)
+    W = float(np.max(NR.y))
+    xg = V.nonuniformgrid(np.array([-2.0, 0.3, 0, 0.2, 2.0, 0.3]))
+    yg = V.nonuniformgrid(np.array([-1.0, 0.3, 0, 0.2, W, 0.2, W + 1.0, 0.3]))
+    grid = V.grid3D(xg, yg, NR.z, NR.x, NR.y, NR.z)
+    NR.dE = 5e-3
+    g1, g2 = L / 3.0, 2.0 * L / 3.0
+    top = V.gate("hex", grid.xmax, grid.xmax, grid.ymin, grid.ymax, g1, g2)
+    bot = V.gate("hex", grid.xmin, grid.xmin, grid.ymin, grid.ymax, g1, g2)
+    ox1 = V.region("hex", grid.xmin, 0, grid.ymin, grid.ymax, grid.zmin, grid.zmax)
+    ox1.eps = 3.9
+    ox2 = V.region("hex", 0, grid.xmax, grid.ymin, grid.ymax, grid.zmin, grid.zmax)
+    ox2.eps = 3.9
+    p = V.interface3D(grid, top, bot, ox1, ox2)
+    V.dope_reservoir(grid, p, NR, 0.001, np.array([grid.xmin, grid.xmax, grid.ymin, grid.ymax, grid.zmin, g1]))
+    V.dope_reservoir(grid, p, NR, 0.001, np.array([grid.xmin, grid.xmax, grid.ymin, grid.ymax, g2, grid.zmax]))
+    V.solve_init(grid, p, NR)
+    p.underel = 0.1
+    NR.mu1, NR.mu2 = -0.0, -0.3
+    cur, iters = [], []
+    for v in vgs:
+        top.Ef = bot.Ef = -v
+        V.set_gate(p, top)
+        V.set_gate(p, bot)
+        p.normpoisson = 1e-1
+        p.normd = 5e-2
+        n0 = solves()
+        V.solve_self_consistent(grid, p, NR)
+        iters.append(solves() - n0)
+        cur.append(float(NR.current()))
+    out = _fet2d_result(NR, grid, p, cur, iters, "Vgs", vgs)
+    out["info"]["ribbon"] = "%d atoms wide, %d slices" % (NR.n, NR.Nc)
+    return out
+
+
+def tut_snw_multiscale(quick):
+    """Tutorial 19 (script.zip, IdVg_Vd=0.1.py): a silicon nanowire FET whose
+    tight-binding Hamiltonian (37 Wannier orbitals per slice, 36 slices) was
+    computed ab initio with Quantum Espresso and Wannier90; the files
+    Wannier2ViDES.H, n_Nc.dat and wannier_center.xyz of the tutorial are in
+    experiments/data/snw_tutorial19.  Vds = 0.1 V, E in [-1, 1] eV.  The
+    tutorial wraps a cylindrical gate round the wire with its own modified
+    NanoTCAD_ViDES.py; this module has no cylindrical regions, so the same
+    geometry is built from boxes: the oxide fills the grid, the Si core is a
+    square of the same width, and the four grid faces (2.13 nm from the axis,
+    where the cylinder gate of 2.1277 nm radius sits) are gates.  Same
+    electrostatics on both backends, so the comparison is unaffected.  dE =
+    10 meV (quick) / 5 meV, Vgs 0.6 V (quick) / 0, 0.6, 1.2 V."""
+    V = load()
+    d = os.path.join(HERE, "data", "snw_tutorial19")
+    a = np.loadtxt(os.path.join(d, "Wannier2ViDES.H"))
+    h2 = np.array(a, dtype=complex)
+    h2[:, 2] = h2[:, 2] + h2[:, 3] * 1j
+    h = h2[:, 0:3].copy()
+    nn = np.loadtxt(os.path.join(d, "n_Nc.dat"))
+    n, Nc = int(nn[0]), int(nn[1])
+    SNW = V.Hamiltonian(n, Nc)
+    h[1:n * Nc + 1, 2] = h[1:n * Nc + 1, 2] + 0.9894
+    SNW.H = h
+    SNW.dE = 0.01 if quick else 0.005
+    SNW.Phi = np.zeros(n * Nc)
+    SNW.Ei = np.zeros(n * Nc)
+    b = np.loadtxt(os.path.join(d, "wannier_center.xyz"))
+    SNW.x = np.around(b[:, 0] / 10.0, 1)
+    SNW.y = np.around(b[:, 1] / 10.0, 1)
+    SNW.z = np.around(b[:, 2] / 10.0, 1)
+    x = V.nonuniformgrid(np.array([-0.9957, 0.2, 3.2597, 0.2]))
+    y = V.nonuniformgrid(np.array([-0.9957, 0.2, 3.2597, 0.2]))
+    grid = V.grid3D(x, y, SNW.z, SNW.x, SNW.y, SNW.z)
+    SNW.mu1, SNW.mu2 = 0.0, -0.1
+    SNW.Elower, SNW.Eupper = -1.0, 1.0
+    vgs = [0.6] if quick else [0.0, 0.6, 1.2]
+    c, r = 1.13196786, 0.6277
+    z1, z2 = grid.zmin + 5, grid.zmax - 5
+    sio2 = V.region("hex", grid.xmin, grid.xmax, grid.ymin, grid.ymax, grid.zmin, grid.zmax)
+    sio2.eps = 3.9
+    si = V.region("hex", c - r, c + r, c - r, c + r, grid.zmin, grid.zmax)
+    si.eps = 11.8
+    gates = [V.gate("hex", grid.xmin, grid.xmin, grid.ymin, grid.ymax, z1, z2),
+             V.gate("hex", grid.xmax, grid.xmax, grid.ymin, grid.ymax, z1, z2),
+             V.gate("hex", grid.xmin, grid.xmax, grid.ymin, grid.ymin, z1, z2),
+             V.gate("hex", grid.xmin, grid.xmax, grid.ymax, grid.ymax, z1, z2)]
+    p = V.interface3D(grid, sio2, si, *gates)
+    p.underel = 0.5
+    p.normpoisson = 1e-3
+    V.dope_reservoir(grid, p, SNW, 1e-2, np.array([grid.xmin, grid.xmax, grid.ymin, grid.ymax, grid.zmin, z1]))
+    V.dope_reservoir(grid, p, SNW, 1e-2, np.array([grid.xmin, grid.xmax, grid.ymin, grid.ymax, z2, grid.zmax]))
+    V.solve_Poisson(grid, p)
+    cur, iters = [], []
+    for v in vgs:
+        for g in gates:
+            g.Ef = -v
+            V.set_gate(p, g)
+        p.normpoisson = 1e-3
+        p.normd = 5e-2
+        n0 = solves()
+        V.solve_self_consistent(grid, p, SNW)
+        iters.append(solves() - n0)
+        cur.append(float(SNW.current()))
+    out = _fet2d_result(SNW, grid, p, cur, iters, "Vgs", vgs)
+    out["info"]["wire"] = "%d orbitals x %d slices" % (n, Nc)
+    return out
+
+
 SCENARIOS = {f.__name__: f for f in [
     tut_cnt, tut_gnr, tut_hamilton, tut_poisson_cnt, tut_scf_cnt, tut_scf_cnt_tight,
     tut_scf_gnr_schottky,
@@ -1201,4 +1316,5 @@ SCENARIOS = {f.__name__: f for f in [
     reg_gnr_fast_ohmic, reg_graphene, reg_bilayer, reg_snw, reg_zincblend, reg_hole,
     reg_zincblend_field, reg_wire2, reg_scf_graphene, tut_gnrphonon,
     tut_bilayer_fet, tut_silicene_fet, tut_tmd, tut_utb, tut_qm1d, tut_tob,
+    tut_silicene_nr, tut_snw_multiscale,
     phys_ballistic, phys_shift_reciprocity, phys_neutral, phys_iv]}

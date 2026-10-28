@@ -1,0 +1,8 @@
+This tutorial is the multi-scale simulation on SNW based on tutorial 14. We have modified some code and they are explained below:
+(1) 'environment_variables' file is modified to find the correct executable path.
+(2) 'NanoTCAD_ViDES.py' is modified to construct cylindrical region.
+(3) 'run_QE' file is modified to construct the supercell of silicon and compute the correct band structure.
+(4) 'run_Wannier' file is modified to transform the Bloch electron wavefunction into a TB Wannier function.
+(5) 'Wannier2ViDES' file is changed to reserve all the interactions between adjacent supercells and abandon all the others. Thus the cutoff parameter in this code is useless and should be set to a large number such as 200nm.
+(6) 'IdVg_Vd=0.1.py' is the file constructing the MOSFET structures and run within the NanoTCAD package.
+（7）‘wannier_center.xyz’ and 'Wannier2ViDES.H' files contained the orbital coordinates and Hamiltonian got from the Quantum Espresso and Wannier90.
