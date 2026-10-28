@@ -43,6 +43,9 @@ def instrument(V):
 
 def main():
     faulthandler.enable()      # a crash inside the C/Fortran code names the Python line
+    wd = os.environ.get("VIDES_SIM_WATCHDOG")
+    if wd:                     # a hang: print where every thread is, then stop
+        faulthandler.dump_traceback_later(float(wd), exit=True)
     name, quick, out = sys.argv[1], sys.argv[2] == "1", sys.argv[3]
     V = sims.load()
     instrument(V)

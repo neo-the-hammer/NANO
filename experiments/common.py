@@ -165,7 +165,12 @@ def run_device(spec, gpu, selfh=None, repeat=1, timeout=7200, env=None):
     with the backend fixed by VIDES_GPU.  spec: see worker.py.  env: extra
     environment (an execution mode, see MODES)."""
     import tempfile
+    if timeout is None:
+        # a hung scenario must not stall the whole run: the long
+        # self-consistent tutorials get an hour and a half, the rest 25 min
+        timeout = 5400 if name.startswith("tut_") else 1500
     env = mode_env(dict(os.environ), env)
+    env["VIDES_SIM_WATCHDOG"] = str(max(30, timeout - 20))   # worker dumps its stack, then exits
     env["VIDES_GPU"] = "1" if gpu else "0"
     env["VIDES_PROFILE"] = "1"
     if selfh:
@@ -211,7 +216,7 @@ def parse_banners(info, stdout, gpu):
     info["gpu_used"] = bool(gpu) and gpu_line_ok(info["backend"])
 
 
-def run_sim(name, gpu, quick, timeout=14400, env=None):
+def run_sim(name, gpu, quick, timeout=None, env=None):
     """Run one scenario of sims.py (an original ViDES script) in a fresh
     process with the backend fixed by VIDES_GPU, in a scratch directory.
     Returns the scenario's result dict plus timing and backend fields."""
@@ -227,10 +232,16 @@ def run_sim(name, gpu, quick, timeout=14400, env=None):
     out = os.path.join(work, "result.json")
     try:
         t0 = time.time()
-        proc = subprocess.run(
-            [sys.executable, os.path.join(HERE, "sim_worker.py"), name,
-             "1" if quick else "0", out],
-            env=env, capture_output=True, text=True, timeout=timeout, cwd=work)
+        try:
+            proc = subprocess.run(
+                [sys.executable, os.path.join(HERE, "sim_worker.py"), name,
+                 "1" if quick else "0", out],
+                env=env, capture_output=True, text=True, timeout=timeout, cwd=work)
+        except subprocess.TimeoutExpired as e:
+            tail = ((e.stdout or b"").decode(errors="replace") if isinstance(e.stdout, bytes) else (e.stdout or "")) + \
+                   ((e.stderr or b"").decode(errors="replace") if isinstance(e.stderr, bytes) else (e.stderr or ""))
+            raise RuntimeError("scenario %s (%s) hung: no result after %d s\n%s"
+                               % (name, "GPU" if gpu else "CPU", timeout, tail[-2500:]))
         wall = time.time() - t0
         if not os.path.exists(out):
             raise RuntimeError("scenario %s (%s) died (rc=%d):\n%s"
