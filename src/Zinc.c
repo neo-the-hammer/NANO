@@ -85,6 +85,13 @@ static PyObject* py_Zinc(PyObject* self, PyObject* args)
   zeta = dvector(0,n_aux*Nc_aux-1);
   H_aux = dvector(0,(Nc_aux*n_aux)*((Nc_aux*n_aux+1)/2)*(2+100) - 1);
 
+  /* dvector() is malloc: the Fortran builders fill only the hoppings that
+     exist, and Python reads whole rows back, so start from zero. */
+  memset(ics, 0, (size_t)n_aux*Nc_aux*sizeof(double));
+  memset(ipsilon, 0, (size_t)n_aux*Nc_aux*sizeof(double));
+  memset(zeta, 0, (size_t)n_aux*Nc_aux*sizeof(double));
+  memset(H_aux, 0, (size_t)(Nc_aux*n_aux)*((Nc_aux*n_aux+1)/2)*(2+100)*sizeof(double));
+
   /*
   temp_out = (PyArrayObject*)PyObject_GetAttrString(obj,"skparameters");
   

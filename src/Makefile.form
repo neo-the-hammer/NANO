@@ -100,6 +100,12 @@ vides_gpu.o : vides_gpu.cu vides_rgf_batch.h complex.h
 $(filter %.o,$(OBJECTS_BLAS_LAPACK)): %.o: %.f
 	$(FF) $(FFLAGS) -frecursive -I$(INCPY) -I$(INCNPY) -c $<
 
+# The Zincblend builders were written for compilers that hand out zeroed
+# locals; zero them explicitly (the diagnostic experiments/diag_zincblend.py
+# found a different Hamiltonian in every process otherwise).
+nanowire.o hamiltonian.o hamil.o elementsitosi_avo.o passivationSiavo.o : %.o: %.f
+	$(FF) $(FFLAGS) -finit-local-zero -I$(INCPY) -I$(INCNPY) -c $<
+
 sub_fermi.o : sub_fermi.f
 	$(FF) $(FFLAGS) -I$(INCPY) -I$(INCNPY) -finit-local-zero -fno-automatic -c sub_fermi.f
 
