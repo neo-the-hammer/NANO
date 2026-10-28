@@ -933,10 +933,272 @@ def tut_gnrphonon(quick):
     return out
 
 
+# ======================================================================
+# R1 -- the remaining tutorials of the ViDES web site
+# (vides.nanotcad.com/vides/documentation/tutorials)
+# ======================================================================
+
+def _fet2d_result(F, grid, p, cur, iters, vlabel, vlist, extra_laws=True):
+    k = ne_of(F.E)
+    out = {"series": {"Id(%s)" % vlabel: cur, "T (last bias)": lst(np.asarray(F.T)[:k]),
+                      "charge (last bias)": lst(F.charge), "Phi on channel": lst(p.Phi[grid.swap])},
+           "x": {"Id(%s)" % vlabel: list(vlist), "T (last bias)": lst(np.asarray(F.E)[:k])},
+           "scalars": {}, "laws": {},
+           "info": {"NEGF solves (one per ky) per bias": iters}}
+    T = np.asarray(F.T)[:k]
+    out["laws"]["T >= 0"] = law(max(0.0, -float(np.min(T))) / max(1.0, float(np.max(T))), 1e-6,
+                                "transmission is never negative")
+    bad = int(np.sum(~np.isfinite(T)) + np.sum(~np.isfinite(np.asarray(cur))) +
+              np.sum(~np.isfinite(np.asarray(F.charge))))
+    out["laws"]["finite"] = law(bad, 0.5, "no NaN/inf in T, charge or current")
+    return out
+
+
+def tut_bilayer_fet(quick):
+    """Tutorial 11 (idvds_bilayer.txt): the graphene FET of tutorial 10
+    with bilayer graphene as the channel; the grid along x ends at 10.35
+    nm (the interlayer distance 0.35 nm added to the 10 nm oxide).
+    Reduced like tut_graphene_idvds: full 30 nm, 32 ky, Vds 0.1..0.5 step
+    0.2; quick 15 nm, 16 ky, Vds = 0.2.  No MPI."""
+    V = load()
+    L, Nky = (15.0, 16) if quick else (30.0, 32)
+    vds = [0.2] if quick else [0.1, 0.3, 0.5]
+    xg = V.nonuniformgrid(np.array([-10, 1, 0, 0.05, 10.35, 1]))
+    F = V.bilayer_graphene(L)
+    acc = 0.144
+    kF = 2 * np.pi / (3 * np.sqrt(3) * acc)
+    dk = 2.0 / (Nky * 0.5)
+    F.kmax, F.kmin, F.dk = kF + dk * Nky * 0.5, kF - dk * Nky * 0.5, dk
+    grid = V.grid2D(xg, F.y, F.x, F.y)
+    ox = V.region("hex", grid.xmin, grid.xmax, grid.ymin, grid.ymax)
+    ox.eps = 3.9
+    g1, g2 = 0.3 * L, 0.7 * L
+    top = V.gate("hex", grid.xmax, grid.xmax, g1, g2)
+    bot = V.gate("hex", grid.xmin, grid.xmin, g1, g2)
+    top.Ef = bot.Ef = -0.1
+    p = V.interface2D(grid, ox, top, bot)
+    V.dope_reservoir(grid, p, F, 5e-3, np.array([-1, 1, grid.ymin, g1]))
+    V.dope_reservoir(grid, p, F, 5e-3, np.array([-1, 1, g2, grid.ymax]))
+    V.solve_init(grid, p, F)
+    p.underel = 0.1
+    cur, iters = [], []
+    for v in vds:
+        F.mu2 = -v
+        p.normpoisson = 1e-1
+        p.normd = 5e-3
+        n0 = solves()
+        V.solve_self_consistent(grid, p, F)
+        iters.append(solves() - n0)
+        cur.append(float(F.current()))
+    out = _fet2d_result(F, grid, p, cur, iters, "Vds", vds)
+    I = np.array(cur)
+    if len(I) > 1:
+        out["laws"]["Id rises with Vds"] = law(max(0.0, float(np.max(I[:-1] - I[1:]))) / float(np.max(np.abs(I))),
+                                               1e-6, "current grows with the drain bias")
+    return out
+
+
+def tut_silicene_fet(quick):
+    """Tutorial 16: double-gate silicene FET, 10 nm doped reservoirs and a
+    20 nm channel.  The graphene class is rescaled as the tutorial gives it
+    (aCC = 0.384 nm, thop = 0.735 eV, y scaled by aCC / 0.144, kmax = pi /
+    delta, dk = kmax / Nky); the transfer-characteristic script is that of
+    the other materials.  Full: Nky 32 as written, Vgs 0, 0.2, 0.4, 0.6 V at
+    Vds = 0.1 V; quick: Nky 16, Vgs 0 and 0.3 V."""
+    V = load()
+    Nky = 16 if quick else 32
+    vgs = [0.0, 0.3] if quick else [0.0, 0.2, 0.4, 0.6]
+    S = V.graphene(15.5)
+    acc = 0.384
+    S.acc = acc
+    S.thop = 0.735
+    S.delta = np.sqrt(3) * acc
+    S.y = S.y / 0.144 * acc
+    S.kmax = np.pi / S.delta
+    S.dk = S.kmax / Nky
+    xg = V.nonuniformgrid(np.array([-10, 1, 0, 0.05, 10, 1]))
+    grid = V.grid2D(xg, S.y, S.x, S.y)
+    ox = V.region("hex", grid.xmin, grid.xmax, grid.ymin, grid.ymax)
+    ox.eps = 3.9
+    top = V.gate("hex", grid.xmax, grid.xmax, 10.0, 30.0)
+    bot = V.gate("hex", grid.xmin, grid.xmin, 10.0, 30.0)
+    p = V.interface2D(grid, ox, top, bot)
+    V.dope_reservoir(grid, p, S, 5e-3, np.array([-1, 1, grid.ymin, 10.0]))
+    V.dope_reservoir(grid, p, S, 5e-3, np.array([-1, 1, 30.0, grid.ymax]))
+    S.mu1, S.mu2 = 0.0, -0.1
+    p.underel = 0.1
+    cur, iters = [], []
+    for v in vgs:
+        top.Ef = bot.Ef = -v
+        V.set_gate(p, top)
+        V.set_gate(p, bot)
+        p.normpoisson = 1e-1
+        p.normd = 5e-3
+        n0 = solves()
+        V.solve_self_consistent(grid, p, S)
+        iters.append(solves() - n0)
+        cur.append(float(S.current()))
+    out = _fet2d_result(S, grid, p, cur, iters, "Vgs", vgs)
+    out["info"]["silicene parameters"] = "aCC %.3f nm, thop %.3f eV, %d slices" % (acc, S.thop, S.Nc)
+    return out
+
+
+def tut_tmd(quick):
+    """Tutorial 17 (demo/tutorial_TMD.py): transfer characteristic of an
+    n-type MoS2-like TMD FET (module_TMD), double gate, doped reservoirs,
+    Vds = 0.1 V, summed over ky.  Full: 30 nm, 32 ky, Vgs 0..1 V step
+    0.25; quick: 15 nm (gates scaled), 16 ky, Vgs 0 and 0.5 V."""
+    V = load()
+    from module_TMD import TMD
+    L, Nky = (15.0, 16) if quick else (30.0, 32)
+    vgs = [0.0, 0.5] if quick else [0.0, 0.25, 0.5, 0.75, 1.0]
+    xg = V.nonuniformgrid(np.array([-2.0, 1, 0, 0.05, 2.0, 1]))
+    F = TMD(L, "n")
+    F.kmax = np.pi / F.delta
+    F.kmin = 0
+    F.dk = F.kmax / Nky
+    F.dE = 1e-3
+    grid = V.grid2D(xg, F.y, F.x, F.y)
+    ox1 = V.region("hex", grid.xmin, 0, grid.ymin, grid.ymax)
+    ox1.eps = 3.9
+    ox2 = V.region("hex", 0, grid.xmax, grid.ymin, grid.ymax)
+    ox2.eps = 3.9
+    g1, g2 = L / 3.0, 2.0 * L / 3.0
+    top = V.gate("hex", grid.xmax, grid.xmax, g1, g2)
+    bot = V.gate("hex", grid.xmin, grid.xmin, g1, g2)
+    p = V.interface2D(grid, ox1, ox2, top, bot)
+    V.dope_reservoir(grid, p, F, 0.01, np.array([-1, 1, grid.ymin, g1]))
+    V.dope_reservoir(grid, p, F, 0.01, np.array([-1, 1, g2, grid.ymax]))
+    F.mu1, F.mu2 = 0.0, -0.1
+    p.underel = 0.1
+    cur, iters = [], []
+    for v in vgs:
+        bot.Ef = top.Ef = -v
+        V.set_gate(p, bot)
+        V.set_gate(p, top)
+        p.normpoisson = 1e-1
+        p.normd = 5e-3
+        n0 = solves()
+        V.solve_self_consistent(grid, p, F)
+        iters.append(solves() - n0)
+        cur.append(float(F.current()))
+    out = _fet2d_result(F, grid, p, cur, iters, "Vgs", vgs)
+    I = np.array(cur)
+    if len(I) > 1:
+        out["laws"]["Id rises with Vgs"] = law(max(0.0, float(np.max(I[:-1] - I[1:]))) / float(np.max(np.abs(I))),
+                                               1e-6, "an n-type FET conducts more as the gate rises")
+    return out
+
+
+def tut_utb(quick):
+    """Tutorial 12 (UTB.txt, module_UTB.txt): an ultra-thin-body device in
+    the effective-mass approximation as a Hamiltonian with one orbital per
+    grid point, on-site 4t, hopping -t, t = hbar^2 / (2 m a^2).  The
+    tutorial's 3 x 5 grid, plus larger ones.  This has an exact answer:
+    transverse subband m (m = 1..nx) sits at 4t - 2t cos(m pi / (nx+1)) and
+    carries one channel over +-2t, so the ballistic transmission is the
+    number of subbands open at E.  Compared with that (band edges, where T
+    jumps, excluded), and CPU vs GPU."""
+    V = load()
+    grids = [(3, 5)] + ([(5, 12)] if quick else [(5, 12), (8, 30)])
+    out = {"series": {}, "x": {}, "scalars": {}, "laws": {}, "refs": {}, "aux": {}, "scale": {}, "info": {}}
+    a = 0.5e-9
+    me = (0.98 * 0.19 * 0.19) ** (1.0 / 3.0) * V.m0
+    t = V.hbar ** 2 / (2 * me * a ** 2) / V.q
+    for nx, ny in grids:
+        h = [[1, 0, 0]]
+        for j in range(ny):
+            for i in range(nx):
+                ix = i + j * nx
+                h.append([ix + 1, ix + 1, 4 * t])
+        for j in range(ny):
+            for i in range(nx):
+                ix = i + j * nx
+                if i < nx - 1:
+                    h.append([ix + 1, ix + 2, -t])
+                if j < ny - 1:
+                    h.append([ix + 1, ix + nx + 1, -t])
+        H = V.Hamiltonian(nx, ny)
+        H.H = np.array(h, dtype=complex)
+        H.Elower, H.Eupper, H.dE, H.eta = 0.0, 4.0 * t, 0.01, 1e-8
+        H.charge_T()
+        name = "UTB %dx%d" % (nx, ny)
+        out = merge(out, dev_result(H, name, nch=nx, equilibrium=True))
+        E = np.asarray(H.E, float)[:ne_of(H.E)]
+        T = np.asarray(H.T, float)[:len(E)]
+        centre = np.array([4 * t - 2 * t * np.cos(m * np.pi / (nx + 1)) for m in range(1, nx + 1)])
+        want = np.array([float(np.sum(np.abs(e - centre) < 2 * t)) for e in E])
+        edges = np.concatenate((centre - 2 * t, centre + 2 * t))
+        keep = np.min(np.abs(E[:, None] - edges[None, :]), axis=1) > 0.03
+        out["refs"]["T = open subbands, %s" % name] = {
+            "err": float(np.max(np.abs(T - want)[keep])) if keep.any() else 0.0, "tol": 1e-4,
+            "what": "exact ballistic transmission of the EMA lattice (band edges excluded)"}
+        out["info"]["%s: t" % name] = "%.4f eV" % t
+    return out
+
+
+def tut_qm1d(quick):
+    """Tutorial 15 (tutorial_QM1d.txt): self-consistent Schroedinger-Poisson
+    of a MOS capacitor (2 nm SiO2 on 100 nm p-type Si, 1 V on the top gate),
+    QM1D with 3 subbands.  A pure CPU solver (no NEGF solve): a GPU build
+    must leave it unchanged, so both backends must agree exactly."""
+    V = load()
+    x = V.nonuniformgrid(np.array([0, 0.1, 2, 0.05, 102, 10]))
+    grid = V.grid1D(x, x)
+    top = V.gate("hex", grid.xmin, grid.xmin + 0.05)
+    top.Ef = -2.0
+    bot = V.gate("hex", grid.xmax - 1, grid.xmax)
+    sio2 = V.region("hex", grid.xmin, 2)
+    sio2.set_material("SiO2")
+    si = V.region("hex", 2, grid.xmax)
+    si.rho = -1e24
+    si.set_material("Si")
+    p = V.interface1D(grid, top, bot, sio2, si)
+    p.normd = 1e-7
+    M = V.QM1D(np.size(x), 3, x, p)
+    V.solve_self_consistent(grid, p, M)
+    ser = {"Psi1": np.asarray(M.Psi)[:, 0], "free charge": M.charge, "Phi": p.Phi,
+           "Ei": M.Ei, "Ec": np.asarray(M.Ei) + np.asarray(M.Egap) * 0.5}
+    out = {"series": {k: lst(v) for k, v in ser.items()}, "scalars": {}, "laws": {}, "cpu_only": True}
+    bad = sum(int(np.sum(~np.isfinite(np.asarray(v, float)))) for v in ser.values())
+    out["laws"]["finite"] = law(bad, 0.5, "no NaN/inf in the wavefunction, charge or potential")
+    return out
+
+
+def tut_tob(quick):
+    """Tutorial 20 (tutorial_script.py): top-of-the-barrier model of a
+    double-gate graphene FET, 0.5 nm SiO2 on each side, Vds = 1.5 V, Vg from
+    -5 V (the tutorial's step 0.01; here 0.1, 0.5 in quick) to +5 V.  Pure
+    CPU (scipy): both backends must agree exactly.  Skipped without scipy."""
+    V = load()
+    if not V.newton_loaded:
+        raise Skip("scipy is not installed")
+    C = 3.9 * V.eps0 / 0.5e-9
+    step = 0.5 if quick else 0.1
+    Vg1 = -5.0
+    TOB = V.graphene_TOB(C, C, Vg1, Vg1, 1.5, Vg1)
+    vg, pot, cur, rho = [], [], [], []
+    for i in range(int(round(10.0 / step)) + 1):
+        Vg1 = -5.0 + i * step
+        TOB.Vg1 = TOB.Vg2 = Vg1
+        phi, curr, ch = TOB.charge_I()
+        vg.append(Vg1)
+        pot.append(float(phi))
+        cur.append(float(curr))
+        rho.append(float(ch))
+    out = {"series": {"Id": cur, "Pot_c": pot, "rho": rho}, "x": {"Id": vg, "Pot_c": vg, "rho": vg},
+           "scalars": {}, "laws": {}, "cpu_only": True}
+    bad = int(np.sum(~np.isfinite(np.array(cur + pot + rho))))
+    out["laws"]["finite"] = law(bad, 0.5, "no NaN/inf in the potential, current or charge")
+    out["laws"]["Id >= 0"] = law(max(0.0, -min(cur)), 1e-12, "a positive drain bias gives a positive current")
+    return out
+
+
 SCENARIOS = {f.__name__: f for f in [
     tut_cnt, tut_gnr, tut_hamilton, tut_poisson_cnt, tut_scf_cnt, tut_scf_cnt_tight,
     tut_scf_gnr_schottky,
     tut_idvgs, tut_graphene_idvds,
     reg_gnr_fast_ohmic, reg_graphene, reg_bilayer, reg_snw, reg_zincblend, reg_hole,
     reg_zincblend_field, reg_wire2, reg_scf_graphene, tut_gnrphonon,
+    tut_bilayer_fet, tut_silicene_fet, tut_tmd, tut_utb, tut_qm1d, tut_tob,
     phys_ballistic, phys_shift_reciprocity, phys_neutral, phys_iv]}
