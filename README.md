@@ -270,10 +270,9 @@ coalescing, launch limits), and the `__syncthreads()` reduction in
 
 **Verified on a real GPU** (Google Colab, Tesla T4, CUDA, `sm_75`): all four
 device paths run on the GPU and agree with the CPU path to round-off.
-These numbers predate the GPU self-energy (they were measured with the
-self-energies on the CPU); the batched decimation has so far been validated
-under emulation (`test/gpu_emulation/`), and its real-GPU results will come
-from the experiments suite below.
+The batched GPU decimation is validated on the same T4 by the experiments
+suite below (C2: CPU and GPU agree to 2.3e-8, both with lead residuals of
+the same size).
 
 | Case | Charge, relative to peak | Transmission, relative to peak |
 |---|---|---|
