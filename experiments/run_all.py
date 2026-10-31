@@ -372,6 +372,8 @@ def close_empty_figures():
     for num in list(p.get_fignums()):
         if not p.figure(num).axes:
             p.close(num)
+    if C.in_notebook():
+        p.close("all")              # every figure was shown already; nothing left for the cell to print
 
 
 def report_one(e, recs, ctx, args, nb, log, elapsed, est):

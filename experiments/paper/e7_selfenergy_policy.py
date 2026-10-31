@@ -14,8 +14,9 @@ threads, pipelined with the GPU solve) with measurements:
   GPU solve + eigen on all threads     the default
   GPU solve + GPU decimation           VIDES_SELFH=dec
 
-for ribbons of width 8, 16 and 24 (40 slices) and a silicon nanowire
-(10 orbitals per atom), at eta = 1e-5.  Accuracy against the CPU eigen
+for ribbons of width 8, 16 and 24 (40 slices), a bilayer flake summed over
+32 ky (small blocks, many short solves) and a silicon nanowire (10
+orbitals per atom), at eta = 1e-5.  Accuracy against the CPU eigen
 run is reported too (decimation is the less accurate method, A1).
 """
 
@@ -35,7 +36,11 @@ CONFIGS = [("CPU eigen, all threads", False, "eig", {}),
 def devices(quick):
     g = [-1.5025, 1.5025, 0.01] if quick else [-1.5025, 1.5025, 0.005]
     d = [("H 8x40", {"kind": "hamiltonian", "size": [8, 40], "grid": g, "eta": 1e-5}),
-         ("H 16x40", {"kind": "hamiltonian", "size": [16, 40], "grid": g, "eta": 1e-5})]
+         ("H 16x40", {"kind": "hamiltonian", "size": [16, 40], "grid": g, "eta": 1e-5}),
+         # small blocks, one short solve per ky: on Kaggle the eigen default made R2's
+         # bilayer test 0.5x the CPU, where GPU decimation had been faster
+         ("bilayer 2D 15nm x32 ky", {"kind": "bilayer", "size": [15.0, 32],
+                                     "grid": [-0.4975, 0.4975, 0.005 if not quick else 0.01], "eta": 1e-5})]
     if not quick:
         d += [("H 24x40", {"kind": "hamiltonian", "size": [24, 40], "grid": g, "eta": 1e-5}),
               ("Si nanowire 3.85x15A", {"kind": "snw", "size": [3.85, 15.0], "grid": [0.05, 9.95, 0.05],
