@@ -26,6 +26,7 @@ SPEC: {"kind": KIND, "size": [a, b], ...}
 and
        "grid": [Elower, Eupper, dE]  (None: the class's own energy range),
        "phi": -0.2, "mu2": -0.3, "eta": 1e-5, "nmodes": 4}
+"eta" applies to every kind when given (experiment E4 sweeps it).
 """
 
 import json
@@ -123,6 +124,8 @@ def build(spec):
     if spec.get("grid"):
         d.Elower, d.Eupper, d.dE = spec["grid"]
     d.mu2 = spec.get("mu2", -0.3)
+    if "eta" in spec and kind not in ("hamiltonian", "vacancy", "snw", "bilayer"):
+        d.eta = spec["eta"]           # (those four take it above, with their own defaults)
     return d
 
 

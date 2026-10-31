@@ -124,7 +124,7 @@ VERDICT_COLOR = {"PASS": "#2e8b57", "WARN": "#c9a227", "FAIL": "#d03b3b", "ERROR
                  "NOT RUN": "#898781"}
 
 
-def write_report(path, header, results):
+def write_report(path, header, results, title="NanoTCAD ViDES — CPU vs GPU experiments"):
     h = []
     h.append("<!doctype html><html><head><meta charset='utf-8'>"
              "<meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -142,7 +142,7 @@ def write_report(path, header, results):
              "img{max-width:100%;background:#fcfcfb;border-radius:6px;margin:6px 0}"
              "pre{white-space:pre-wrap;color:var(--ink2);font-size:12px}"
              "</style></head><body>")
-    h.append("<h1>NanoTCAD ViDES — CPU vs GPU experiments</h1>")
+    h.append("<h1>%s</h1>" % html.escape(title))
     h.append("<p>%s</p>" % "<br>".join(html.escape(x) for x in header))
     h.append("<h2>Summary</h2><table><tr><th>id</th><th>experiment</th><th>verdict</th>"
              "<th>result</th><th>time</th><th>estimate</th></tr>")
@@ -179,8 +179,26 @@ def write_report(path, header, results):
         f.write("\n".join(h))
 
 
-def main(argv=None):
-    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+def bool_arg(v):
+    s = str(v).strip().lower()
+    if s in ("1", "true", "yes", "on", "y", "t"):
+        return True
+    if s in ("0", "false", "no", "off", "n", "f"):
+        return False
+    raise argparse.ArgumentTypeError("expected true or false, got %r" % v)
+
+
+def main(argv=None, experiments=None, needs_module=None, results_dir=None,
+         title="NanoTCAD ViDES — CPU vs GPU experiments", description=None):
+    """Run `experiments` (default: the CPU-vs-GPU suite) and write
+    report.html into `results_dir` (default experiments/results).  The
+    publication suite (experiments/paper/run_paper.py) calls this with its
+    own list and folder."""
+    experiments = EXPERIMENTS if experiments is None else experiments
+    needs_module = NEEDS_MODULE if needs_module is None else needs_module
+    if results_dir:
+        C.RESULTS = results_dir
+    ap = argparse.ArgumentParser(description=description or __doc__.split("\n")[0])
     ap.add_argument("--quick", action="store_true", help="small sizes (a few minutes)")
     ap.add_argument("--only", nargs="+", metavar="ID", help="run only these experiments")
     ap.add_argument("--skip", nargs="+", metavar="ID", default=[], help="skip these experiments")
@@ -188,7 +206,13 @@ def main(argv=None):
                     help="no runs: re-analyse and re-plot the saved results")
     ap.add_argument("--no-plots", action="store_true", help="tables only")
     ap.add_argument("--list", action="store_true", help="list the experiments and exit")
+    ap.add_argument("--visualize", type=bool_arg, nargs="?", const=True, default=None, metavar="true|false",
+                    help="draw the simulated devices (atoms, gates, oxide, doping, potential and "
+                         "charge) after the results of the scenario experiments; default false, "
+                         "or the VIDES_VISUALIZE environment variable")
     args = ap.parse_args(argv)
+    if args.visualize is not None:
+        os.environ["VIDES_VISUALIZE"] = "1" if args.visualize else "0"
     out = sys.stdout
 
     def log(s=""):
@@ -196,15 +220,15 @@ def main(argv=None):
         out.flush()
 
     if args.list:
-        for e in EXPERIMENTS:
+        for e in experiments:
             log("  %-3s %-11s %s" % (e.ID, e.KIND, e.TITLE))
         return 0
 
-    want = [x.upper() for x in args.only] if args.only else [e.ID for e in EXPERIMENTS]
+    want = [x.upper() for x in args.only] if args.only else [e.ID for e in experiments]
     skip = {x.upper() for x in args.skip}
-    exps = [e for e in EXPERIMENTS if e.ID in want and e.ID not in skip]
+    exps = [e for e in experiments if e.ID in want and e.ID not in skip]
     if not exps:
-        log("nothing to run (known ids: %s)" % " ".join(e.ID for e in EXPERIMENTS))
+        log("nothing to run (known ids: %s)" % " ".join(e.ID for e in experiments))
         return 2
     os.makedirs(C.RESULTS, exist_ok=True)
     nb = C.in_notebook()
@@ -212,11 +236,19 @@ def main(argv=None):
     header = ["host: %s, %s, %d CPU threads, Python %s"
               % (platform.node(), platform.processor() or platform.machine(),
                  os.cpu_count() or 1, platform.python_version())]
+    try:                                    # machine, libraries and code version (paper/environment.py)
+        sys.path.insert(0, os.path.join(HERE, "paper"))
+        import environment
+        man = environment.manifest()
+        header = environment.header_lines(man)
+        C.save_json("environment.json", man)
+    except Exception:
+        pass
     ctx = {"quick": args.quick}
     results = []
 
     if not args.replot:
-        log("NanoTCAD ViDES -- CPU vs GPU experiments%s" % (" (quick)" if args.quick else ""))
+        log("%s%s" % (title.replace("—", "--"), " (quick)" if args.quick else ""))
         exe = C.build_native(log)
         info = C.run_native(exe, ["info"])
         ctx.update(exe=exe, gpu=bool(info["gpu"]))
@@ -232,14 +264,14 @@ def main(argv=None):
                 "experiments report NO GPU.")
         skipped = []
         if not mod:
-            skipped = [e for e in exps if e.ID in NEEDS_MODULE]
+            skipped = [e for e in exps if e.ID in needs_module]
             if skipped:
                 log("  WARNING: src/NanoTCAD_ViDESmod.so not built; skipping %s"
                     % " ".join(e.ID for e in skipped))
         run = [e for e in exps if e not in skipped]
 
         model = C.CostModel()
-        calibrate(model, exe, ctx["gpu"], any(e.ID in NEEDS_MODULE for e in run), log)
+        calibrate(model, exe, ctx["gpu"], any(e.ID in needs_module for e in run), log)
         plan = [(e, e.steps(ctx)) for e in run]
         prog = C.Progress(plan, model, out)
         prog.plan()
@@ -299,7 +331,7 @@ def main(argv=None):
                 [[r["id"], r["verdict"], C.fmt_t(r.get("elapsed")).strip(),
                   C.fmt_t(r.get("estimate")).strip(), r["headline"]] for r in results], out, "  ")
     rep = os.path.join(C.RESULTS, "report.html")
-    write_report(rep, header, results)
+    write_report(rep, header, results, title)
     log("\nResults: %s/  (one JSON per experiment, PNG figures)" % os.path.relpath(C.RESULTS))
     log("Report:  %s  (open in a browser: summary, tables and every figure)" % os.path.relpath(rep))
     if nb:
