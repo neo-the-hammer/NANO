@@ -311,8 +311,22 @@ def main(argv=None):
             display(HTML("<table>%s</table>" % rows))
         except Exception:
             pass
+    close_empty_figures()
     bad = [r for r in results if r["verdict"] == "FAIL"]
     return 1 if bad else 0
+
+
+def close_empty_figures():
+    """A notebook shows every figure still open when the cell ends; close
+    the empty ones (NanoTCAD_ViDES does "from pylab import *", which can
+    leave one behind) so no stray "<Figure ... with 0 Axes>" is printed."""
+    try:
+        import matplotlib.pyplot as p
+    except ImportError:
+        return
+    for num in list(p.get_fignums()):
+        if not p.figure(num).axes:
+            p.close(num)
 
 
 def report_one(e, recs, ctx, args, nb, log, elapsed, est):

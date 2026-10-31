@@ -124,10 +124,12 @@ principle; scored by the residual of the lead's own fixed-point equation,
 the eigen method stays at ~1e-12 for any `eta`, while decimation reaches
 ~1e-12–1e-9 at moderate `eta` but only ~1e-6 at band edges as `eta`
 approaches 1e-8. The eigen method is also cheaper per energy on a CPU;
-decimation batches. So by default a GPU build uses decimation when
-`eta >= 1e-6` and the eigen method below that (`Hamiltonian`'s default
-`eta` is 1e-8), and a CPU run always keeps the eigen method; `VIDES_SELFH`
-overrides either. Experiments A1 and A2 measure exactly this trade-off.
+decimation batches. The default is the eigen method on every build: on a
+GPU run the CPU threads compute the self-energies of the next chunk of
+energies while the GPU solves the current one, which on the T4 was no
+slower than batched GPU decimation (equal per energy on one core, and the
+CPU side scales with cores; S2, S7, P2). `VIDES_SELFH=dec` selects the GPU
+decimation. Experiments A1, A2 and P2 measure this trade-off.
 
 All decimation in the code (`Gzerozero`, used by `selfGNR`, `selfH_dec`
 and `selfH_W`, and the GPU batch) uses the Sancho-Rubio form. The
@@ -177,7 +179,7 @@ of energy points; for a very small device the CPU may still win.
 |---|---|
 | `VIDES_GPU=0` | Force the CPU path even on a GPU build |
 | `VIDES_GPU_BATCH=N` | Cap the number of energies per batch |
-| `VIDES_SELFH=eig` / `dec` | Hamiltonian path: eigen-method or decimation contact self-energy (default: `dec` on the GPU when `eta >= 1e-6`, otherwise `eig`) |
+| `VIDES_SELFH=eig` / `dec` | Hamiltonian path: eigen-method or decimation contact self-energy (default: `eig`, pipelined with the GPU solve on a GPU run) |
 | `VIDES_PROFILE=1` | Print a per-call split: self-energy time, NEGF solve time, the rest (`2` also prints every hybrid split) |
 | `VIDES_THREADS=N` | CPU worker threads (default: all online cores; `1` = the stock serial path) |
 | `VIDES_HYBRID=0` | GPU only: do not give the CPU threads a share of each batch (default `1` on a GPU) |

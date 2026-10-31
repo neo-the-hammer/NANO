@@ -165,12 +165,7 @@ def run_device(spec, gpu, selfh=None, repeat=1, timeout=7200, env=None):
     with the backend fixed by VIDES_GPU.  spec: see worker.py.  env: extra
     environment (an execution mode, see MODES)."""
     import tempfile
-    if timeout is None:
-        # a hung scenario must not stall the whole run: the long
-        # self-consistent tutorials get an hour and a half, the rest 25 min
-        timeout = 5400 if name.startswith("tut_") else 1500
     env = mode_env(dict(os.environ), env)
-    env["VIDES_SIM_WATCHDOG"] = str(max(30, timeout - 20))   # worker dumps its stack, then exits
     env["VIDES_GPU"] = "1" if gpu else "0"
     env["VIDES_PROFILE"] = "1"
     if selfh:
@@ -221,7 +216,12 @@ def run_sim(name, gpu, quick, timeout=None, env=None):
     process with the backend fixed by VIDES_GPU, in a scratch directory.
     Returns the scenario's result dict plus timing and backend fields."""
     import tempfile
+    if timeout is None:
+        # a hung scenario must not stall the whole run: the long
+        # self-consistent tutorials get an hour and a half, the rest 25 min
+        timeout = 5400 if name.startswith("tut_") else 1500
     env = mode_env(dict(os.environ), env)
+    env["VIDES_SIM_WATCHDOG"] = str(max(30, timeout - 20))   # worker dumps its stack, then exits
     env["VIDES_GPU"] = "1" if gpu else "0"
     env["VIDES_PROFILE"] = "1"
     env.pop("VIDES_SELFH", None)
@@ -563,7 +563,7 @@ def u_device(spec, gpu=False, selfh=None, repeat=1):
     if kind in ("gnr", "gnr_schottky"):
         sig = 2 * 55.0 * (4 * n) ** 3 if kind == "gnr" else 50.0 * n ** 3
     elif kind in ("hamiltonian", "vacancy", "snw", "gnr_fast", "graphene", "bilayer", "tmd"):
-        dec = selfh == "dec" or (selfh is None and gpu)
+        dec = selfh == "dec"            # the default is the eigen method on both backends
         sig = 2 * (55.0 * (4 * n) ** 3 if dec else 300.0 * (2 * n) ** 3)
     else:
         sig = 50.0 * n ** 3

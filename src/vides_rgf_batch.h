@@ -172,10 +172,12 @@ int vides_decimation_batch_gpu(int M, int NB, const double *E, double eta,
 
 /* Which self-energy H_charge_T uses: 1 = decimation (selfH_dec, batched,
  * GPU-capable), 0 = the original eigen method (selfH_new).  Set by
- * VIDES_SELFH=dec|eig; by default decimation when a GPU is in use and
- * eta >= VIDES_SELFH_DEC_MIN_ETA, the eigen method otherwise.  The eigen
- * method is the more accurate of the two at small eta (see
- * test/gpu_emulation/selfenergy_check.c), and on a CPU also the faster. */
+ * VIDES_SELFH=dec|eig; by default the eigen method, which on a GPU run
+ * is computed by the CPU threads while the GPU solves the previous chunk
+ * (pipeline).  It is the more accurate of the two at small eta (see
+ * test/gpu_emulation/selfenergy_check.c), on a CPU also the faster, and
+ * with the pipeline no slower than the GPU decimation (experiments S2, S7,
+ * P2).  VIDES_SELFH_DEC_MIN_ETA is kept for callers that test against it. */
 #define VIDES_SELFH_DEC_MIN_ETA 1e-6
 int vides_selfh_use_decimation(double eta);
 

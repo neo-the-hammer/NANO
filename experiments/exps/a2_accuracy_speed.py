@@ -5,7 +5,7 @@ Four runs of the same device:
     CPU + eigen        reference (the stock code path)
     CPU + decimation
     GPU + eigen        self-energy per energy on the CPU, RGF on the GPU
-    GPU + decimation   everything batched on the GPU (the GPU default)
+    GPU + decimation   everything batched on the GPU (VIDES_SELFH=dec)
 Each is scored against the reference (T, charge, current) and timed
 (steady-state: best call after the first, so GPU start-up is excluded).
 The plot is the trade-off: error vs time.

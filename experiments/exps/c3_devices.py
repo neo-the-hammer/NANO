@@ -10,9 +10,11 @@ charge/transmission assembly in the four entry points.
   gnr          graphene ribbon   GNR_charge_T      RGF std + GPU decimation
   hamiltonian  generic H         H_charge_T        RGF Lake + GPU decimation
                (both runs pinned to VIDES_SELFH=dec, so any diff is the GPU's)
-  ham-default  as above with each backend's default self-energy: the eigen
-               method on the CPU, decimation on the GPU -- what a user gets.
-               Differences here are the methods', not the GPU's.
+  ham-default  as above with each backend's default self-energy -- what a
+               user gets.  Since the eigen method became the default on GPU
+               runs too (pipelined with the GPU solve), both use it; the
+               tolerance stays 1e-5 so older builds, where the GPU default
+               was decimation, are judged the same way.
 
   cnt-schottky, gnr-schottky   Schottky contacts (closed-form self-energy)
   gnr-fast     nanoribbon_fast_ohmic: a ribbon built in Python, H path
@@ -31,7 +33,8 @@ Tolerances (max diff relative to peak, over T, charge and current):
   gnr-fast              1e-6   eta = 1e-8 (the class default) through the
                                Lake recursion: conditioning ~ 1/eta, the
                                T4 run gave 1.0e-7 in charge, T 4e-12
-  vacancy, bilayer-2d, tmd-2d   1e-5 (eta = 1e-5: eigen vs decimation)
+  vacancy, bilayer-2d, tmd-2d   1e-5 (eta = 1e-5; eigen vs decimation on
+                               builds older than the eigen default)
 WARN up to 100x the tolerance, FAIL beyond.
 
 Grids are offset by half a step so no energy lands exactly on a zigzag

@@ -126,10 +126,11 @@ CASES = {
 }
 
 # Extra environment per case, applied to both the CPU and the GPU run.
-# The Hamiltonian path's contact self-energy is decimation on the GPU but
-# the eigen method on the CPU by default (vides_selfh_use_decimation), so
-# 'hamiltonian' pins both runs to decimation: any difference is then the
-# GPU's.  'hamiltonian_default' keeps the defaults, i.e. what a user gets.
+# The Hamiltonian path's contact self-energy defaults to the eigen method
+# on both backends (vides_selfh_use_decimation); 'hamiltonian' pins both
+# runs to decimation so the GPU decimation is exercised too, and any
+# difference is then the GPU's.  'hamiltonian_default' keeps the defaults,
+# i.e. what a user gets.
 CASE_ENV = {
     "hamiltonian": {"VIDES_SELFH": "dec"},
     "hamiltonian_ongrid": {"VIDES_SELFH": "dec"},

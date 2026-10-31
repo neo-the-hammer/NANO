@@ -215,6 +215,7 @@ def main():
             if f is not fig and not f.axes:
                 plt.close(f)
         plt.show()
+        plt.close("all")       # nothing left for the notebook to print at the end of the cell
     return 0
 
 

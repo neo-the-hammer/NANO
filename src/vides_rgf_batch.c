@@ -635,11 +635,15 @@ int vides_selfh_use_decimation(double eta)
   const char *env = getenv("VIDES_SELFH");
   if (env && (env[0] == 'e' || env[0] == 'E')) return 0;
   if (env && (env[0] == 'd' || env[0] == 'D')) return 1;
-  /* Below this broadening the eigen method is much the more accurate of
-     the two (residual ~1e-12 against up to ~1e-6 for decimation at
-     eta = 1e-8, at band edges), and it costs about as much per energy as
-     one batched GPU decimation, so it stays the default there even on a
-     GPU; the NEGF solve itself still runs on the GPU. */
-  if (eta < VIDES_SELFH_DEC_MIN_ETA) return 0;
-  return vides_gpu_available();
+  /* Default: the eigen method, on the CPU threads, pipelined with the
+     GPU solve (H_charge_T).  It is the more accurate of the two
+     (residual ~1e-12 against up to ~1e-6 for decimation at small eta, A1)
+     and, measured on a T4, no slower: one eigen self-energy costs about
+     one batched GPU decimation per energy on a single core (S2), the
+     pipeline hides it behind the GPU solve, and every further core divides
+     it (Hamiltonian path 16x40: 2.0 s eigen vs 2.4 s decimation on Colab,
+     S7; with 4 cores the GPU decimation lost to the CPU, 0.6x).  GPU
+     decimation stays available with VIDES_SELFH=dec. */
+  (void)eta;
+  return 0;
 }
