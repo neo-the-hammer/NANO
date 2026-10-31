@@ -348,6 +348,19 @@ def main(argv=None, experiments=None, needs_module=None, results_dir=None,
     return 1 if bad else 0
 
 
+def device_figures(e, recs, plt):
+    """Pictures of the simulated devices (--visualize true): one per device."""
+    sys.path.insert(0, HERE)
+    import visualize
+    if not visualize.enabled():
+        return []
+    from visualize import device, render_saved
+    figs = []
+    for name, g in list(render_saved.collect(recs).items())[:30]:
+        figs.extend(device.render(g, "%s %s" % (e.ID, name), plt))
+    return figs
+
+
 def close_empty_figures():
     """A notebook shows every figure still open when the cell ends; close
     the empty ones (NanoTCAD_ViDES does "from pylab import *", which can
@@ -398,6 +411,16 @@ def report_one(e, recs, ctx, args, nb, log, elapsed, est):
                     plt.show()
                 else:
                     plt.close(f)
+            figs = device_figures(e, recs, plt)
+            for k, f in enumerate(figs):
+                p = C.save_fig(f, "%s_device_%d.png" % (e.ID, k + 1))
+                res["figs"].append(fig_png(f))
+                if nb:
+                    plt.show()
+                else:
+                    plt.close(f)
+            if figs:
+                log("   device pictures: %d (experiments/visualize)" % len(figs))
         except ImportError:
             log("   (matplotlib not installed: no figures)")
         except Exception:

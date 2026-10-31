@@ -49,6 +49,11 @@ def main():
     name, quick, out = sys.argv[1], sys.argv[2] == "1", sys.argv[3]
     V = sims.load()
     instrument(V)
+    rec = None
+    import visualize
+    if visualize.enabled():
+        from visualize import capture
+        rec = capture.Recorder(V)
     t0 = time.perf_counter()
     try:
         res = sims.SCENARIOS[name](quick)
@@ -57,6 +62,11 @@ def main():
     except Exception:
         res = {"error": traceback.format_exc()[-3000:]}
     res["wall"] = time.perf_counter() - t0
+    if rec is not None:
+        try:
+            res["geometry"] = rec.serialize(name)
+        except Exception:
+            res["geometry_error"] = traceback.format_exc()[-1500:]
     res["solves"] = V._sim_solves
     res["t_solve"] = V._sim_t
     res["name"] = name

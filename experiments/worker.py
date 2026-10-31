@@ -164,10 +164,17 @@ def main():
     E = np.asarray(d.E, float).ravel()[:ne]
     T = np.asarray(d.T, float).ravel()[:ne]
     charge = np.asarray(d.charge, float).ravel()
+    res = {"spec": spec, "times": times, "n": int(getattr(d, "n", 1)), "Nc": int(d.Nc),
+           "NE": ne, "E": E.tolist(), "T": T.tolist(),
+           "charge": charge.tolist(), "current": current}
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import visualize
+    if visualize.enabled():                       # --visualize true: draw the device in the report
+        from visualize import capture
+        g = capture.device_geometry(d, spec["kind"])
+        res["geometry"] = {"devices": [g] if g else [], "gates": [], "regions": [], "doping": []}
     with open(out, "w") as f:
-        json.dump({"spec": spec, "times": times, "n": int(getattr(d, "n", 1)), "Nc": int(d.Nc),
-                   "NE": ne, "E": E.tolist(), "T": T.tolist(),
-                   "charge": charge.tolist(), "current": current}, f)
+        json.dump(res, f)
 
 
 if __name__ == "__main__":

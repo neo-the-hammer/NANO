@@ -98,7 +98,46 @@ lead equation equally well.
 --replot           re-analyse and re-plot saved results, no runs
 --no-plots         tables only
 --list             list the experiments
+--visualize true   draw every simulated device after its results (default false;
+                   also VIDES_VISUALIZE=true)
 ```
+
+## Publication experiments (`paper/`)
+
+Separate scripts, same machinery, their own report:
+
+```bash
+python3 experiments/paper/run_paper.py --quick       # all eight, small sizes
+python3 experiments/paper/run_paper.py --only E1 E5
+python3 experiments/paper/e5_disorder.py             # one experiment alone
+python3 experiments/paper/export.py                  # PDF figures + LaTeX tables
+python3 experiments/paper/environment.py             # machine / software manifest
+```
+
+| ID | What it measures |
+|---|---|
+| E1 | Energy to solution: joules per solve on CPU and GPU (GPU board power by `nvidia-smi`, CPU package energy by RAPL where the machine exposes it). |
+| E2 | Forced multi-chunk GPU batches (`VIDES_GPU_BATCH`): identical results, and what small batches cost. |
+| E3 | Scaling to large devices: the widest ribbon each backend solves within a time budget, and the fitted growth of the time with width. |
+| E4 | Convergence in the energy step and the broadening; time each backend needs for a 1e-3 accurate current. |
+| E5 | A study the speedup makes practical: Anderson localization over ensembles of disordered ribbons (localization length from `<ln T>` against length); CPU and GPU solve the same random ribbons. |
+| E6 | Several GPUs: the ky points of a 2D device split across GPUs (or processes sharing one), checked against one process. |
+| E7 | Contact self-energy policy on the Hamiltonian path: eigen method pipelined on the CPU threads against GPU decimation. |
+| E8 | Timing statistics: repeated runs in independent processes, coefficient of variation, 95% bootstrap intervals of the speedups. |
+
+Results go to `results/paper/` (JSON, PNG, `environment.json`, `report.html`).
+`export.py` writes `results/paper/export/`: one PDF per figure and one
+LaTeX (booktabs) file per experiment, for both suites.
+
+## Device pictures (`visualize/`)
+
+With `--visualize true` the workers record each device they solve (atoms,
+potential and charge per atom, gates, dielectrics, doped boxes) and the
+report shows, after the experiment's results, a side view of the device
+with its gates, oxide and doping, a top view, and the band shift and charge
+along it. `visualize/render_saved.py results/R1.json` draws them again from
+saved results. Visualization is off by default because it adds the
+geometry to every saved record.
 
 ## How it works
 
