@@ -8,43 +8,43 @@ def CNT(N,M):
 #    N=(int)(N/4);
     hamiltonian = []
     for j in range(M):
-	for i in range(N):
-	    n = i + 1 + j*N
-	    hamiltonian.append([n, n, Energy])
+        for i in range(N):
+            n = i + 1 + j*N
+            hamiltonian.append([n, n, Energy])
     
     for j in range(1, M-1, +4):
-	for i in range(1, N):
- 	    n = i + 1 + j*N
- 	    m = i + (j+1)*N 
-	    hamiltonian.append([n, m, t])
+        for i in range(1, N):
+            n = i + 1 + j*N
+            m = i + (j+1)*N 
+            hamiltonian.append([n, m, t])
             #hamiltonian.append([m, n, t])
 
     for j in range(3, M-1, +4):
-	for i in range(0, N-1):
- 	    n = i + 1 + j*N
- 	    m = i + 2 + (j+1)*N 
-	    hamiltonian.append([n, m, t])
+        for i in range(0, N-1):
+            n = i + 1 + j*N
+            m = i + 2 + (j+1)*N 
+            hamiltonian.append([n, m, t])
             #hamiltonian.append([m, n, t])
 
     for j in range(M-1):
-	for i in range(N):
- 	    n = i + 1 + j*N
- 	    m = i + 1 + (j+1)*N 
-	    hamiltonian.append([n, m, t])
+        for i in range(N):
+            n = i + 1 + j*N
+            m = i + 1 + (j+1)*N 
+            hamiltonian.append([n, m, t])
             #hamiltonian.append([m, n, t])
 
     for j in range(1, M-1, 4):
         n = j*N + 1
         m = (j+1)*N + N  
-	hamiltonian.append([n, m, t])
+        hamiltonian.append([n, m, t])
         #hamiltonian.append([m, n, t])
 
     for j in range(3, M-1, 4):
         n = (j+1)*N
         m = (j+1)*N + 1
-	hamiltonian.append([n, m, t])
+        hamiltonian.append([n, m, t])
         #hamiltonian.append([m, n, t])
-	
+        
     return array(hamiltonian)
 
 def GNR(N,M):
@@ -63,82 +63,82 @@ def GNR(N,M):
     hamiltonian.append(orbitals)
 
     for j in range(M):
-	for i in range(N):
-	    n = i + 1 + j*N
+        for i in range(N):
+            n = i + 1 + j*N
             p = [n,n]
             p =  p + ene
-	    hamiltonian.append(p)
+            hamiltonian.append(p)
     
     for j in range(1, M-1, +4):
-	for i in range(1, N):
- 	    n = i + 1 + j*N
- 	    m = i + (j+1)*N 
+        for i in range(1, N):
+            n = i + 1 + j*N
+            m = i + (j+1)*N 
             p = [n,m]
             p =  p + coupling1
-	    hamiltonian.append(p)
+            hamiltonian.append(p)
       #      hamiltonian.append([m, n, t, p, d])
 
     for j in range(3, M-1, +4):
-	for i in range(0, N-1):
- 	    n = i + 1 + j*N
- 	    m = i + 2 + (j+1)*N 
+        for i in range(0, N-1):
+            n = i + 1 + j*N
+            m = i + 2 + (j+1)*N 
             p = [n,m]
             p =  p + coupling1
-	    hamiltonian.append(p)
+            hamiltonian.append(p)
        #     hamiltonian.append([m, n, t, p, d])
 
 
 # nell'if ripristinare il fattore t*1.12  
     for j in range(0, M-1, +4):
-	for i in range(N):
- 	    n = i + 1 + j*N
- 	    m = i + 1 + (j+1)*N
-	    if i == 0:
+        for i in range(N):
+            n = i + 1 + j*N
+            m = i + 1 + (j+1)*N
+            if i == 0:
                   p = [n,m]
                   p =  p + coupling2
-	          hamiltonian.append(p)
+                  hamiltonian.append(p)
         #          hamiltonian.append([m, n, t*1.12, p, d])
             else :
                   p = [n,m]
                   p =  p + coupling1
-        	  hamiltonian.append(p)
+                  hamiltonian.append(p)
          #         hamiltonian.append([m, n, t, p, d])
 
     for j in range(1, M-1, +4):
-	for i in range(N):
- 	    n = i + 1 + j*N
- 	    m = i + 1 + (j+1)*N 
+        for i in range(N):
+            n = i + 1 + j*N
+            m = i + 1 + (j+1)*N 
             p = [n,m]
             p =  p + coupling1
-	    hamiltonian.append(p)
+            hamiltonian.append(p)
 #            hamiltonian.append([m, n, t, p, d])
 
 # nell'if ripristinare il fattore t*1.12 
     for j in range(2, M-1, +4):
-	for i in range(N):
- 	    n = i + 1 + j*N
- 	    m = i + 1 + (j+1)*N
-	    if i == (N-1):
+        for i in range(N):
+            n = i + 1 + j*N
+            m = i + 1 + (j+1)*N
+            if i == (N-1):
                   p = [n,m]
                   p =  p + coupling2
-	          hamiltonian.append(p)
+                  hamiltonian.append(p)
  #                 hamiltonian.append([m, n, t*1.12, p, d])
             else :
                   p = [n,m]
                   p =  p + coupling1
-        	  hamiltonian.append(p)
+                  hamiltonian.append(p)
   #                hamiltonian.append([m, n, t, p, d])
 
     for j in range(3, M-1, +4):
-	for i in range(N):
- 	    n = i + 1 + j*N
- 	    m = i + 1 + (j+1)*N 
+        for i in range(N):
+            n = i + 1 + j*N
+            m = i + 1 + (j+1)*N 
             p = [n,m]
             p =  p + coupling1
-	    hamiltonian.append(p)
+            hamiltonian.append(p)
    #         hamiltonian.append([m, n, t, p, d])
 
-    print hamiltonian
+    print(hamiltonian)
 
     return array(hamiltonian,dtype=complex)
 

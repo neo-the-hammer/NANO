@@ -81,10 +81,10 @@ for material in rangematerial:
 
             H = Zincblend(material, S, Or, D, L)
 
-            print H.sqci, H.tilt, H.edge, H.zmax
+            print(H.sqci, H.tilt, H.edge, H.zmax)
 
-            print H.n
-            print H.Nc
+            print(H.n)
+            print(H.Nc)
 #            quit()
 
 
@@ -93,18 +93,18 @@ for material in rangematerial:
             V = (Voltage)/2
             H.Elower = Ei
             H.Eupper = Ei+0.1
-	    
+            
             H.dE = deltaE
             H.eta = 1e-8
             n = H.n
             Nc = H.Nc
 
-            print H.n, H.Nc, n, Nc
+            print(H.n, H.Nc, n, Nc)
 
 
-            print (H.Nc_aux*H.n_aux)*((H.Nc_aux*H.n_aux+1)/2)*(2+100)
+            print((H.Nc_aux*H.n_aux)*((H.Nc_aux*H.n_aux+1)/2)*(2+100))
 
-            print H.max[0]
+            print(H.max[0])
 
 
             H.mu1 = V
@@ -112,31 +112,31 @@ for material in rangematerial:
 
 
      
-	    print 'length of the wire from LMAX', H.L
+            print('length of the wire from LMAX', H.L)
 
             effF = round((2*V)/(H.L-2*H.a0),3)
 
-	    print 'active length', H.L-2*H.a0
-	   
+            print('active length', H.L-2*H.a0)
+           
 
-            print 'applied field', effF
+            print('applied field', effF)
 
-	    i = 0;
+            i = 0;
 
-	    print H.z[:H.n*H.Nc];
+            print(H.z[:H.n*H.Nc]);
 
-#	    exit()
+#           exit()
 
-	    #for ln in H.z:
-		    
-	#	    H.Phi[i]=H.mu1*(1-2*(H.z[i]/(H.L)))
-		#    i = i + 1
+            #for ln in H.z:
+                    
+        #           H.Phi[i]=H.mu1*(1-2*(H.z[i]/(H.L)))
+                #    i = i + 1
 
-	    H.Phi=H.mu1*(1-2*((H.z-H.a0)/(H.L)))
+            H.Phi=H.mu1*(1-2*((H.z-H.a0)/(H.L)))
 
-	    #print H.Phi[:H.n*H.Nc];
+            #print H.Phi[:H.n*H.Nc];
   
-		    
+                    
 #            for i in range (4):
 #                for j in range(n):
 #                    k = i*n + j
@@ -158,15 +158,15 @@ for material in rangematerial:
 #                for j in range(n):
 #                    k = i*n + j
 #                    H.Phi[k] = H.mu1*(1-2*((H.z[k]-H.a0)/(H.L-2*H.a0)))
-	    
-	    H.Phi = ciccione(H.Phi,H.n,H.Nc,H.z,H.a0);
-	    
-	    H.z = ciccione(H.z,H.n,H.Nc,H.z,H.a0);
+            
+            H.Phi = ciccione(H.Phi,H.n,H.Nc,H.z,H.a0);
+            
+            H.z = ciccione(H.z,H.n,H.Nc,H.z,H.a0);
 
-#	    print H.Phi[:H.n*H.Nc];
+#           print H.Phi[:H.n*H.Nc];
 
-	    for i in range(4*n):
-		    H.Phi[i]=H.Phi[0]
+            for i in range(4*n):
+                    H.Phi[i]=H.Phi[0]
 
             for i in range (Nc-4, Nc):
                 for j in range(n):
@@ -177,25 +177,25 @@ for material in rangematerial:
                 for j in range(n):
                     k = i*n + j
                     H.Phi[k] = H.mu1*(1-2*((H.z[i*n]-2*H.a0)/(H.L-2*H.a0)))
-		    print H.z[k]
+                    print(H.z[k])
 
-		    #H.Phi[k] = H.mu1*(1-2*((H.z[k]-H.z[4*n])/(length-2*H.z[4*n])))
+                    #H.Phi[k] = H.mu1*(1-2*((H.z[k]-H.z[4*n])/(length-2*H.z[4*n])))
 
-	    print 'lenght', H.z[(Nc-1)*(n) ]
-	    print  H.z[4*n]
+            print('lenght', H.z[(Nc-1)*(n) ])
+            print(H.z[4*n])
 
-	    print H.L
+            print(H.L)
 
-	    print H.z
-	
+            print(H.z)
+        
 
-	    print H.Phi;
+            print(H.Phi);
 
-	    	    
-	    #exit()
+                    
+            #exit()
 
-            print H.charge_T()       
-	    print "sono qua dopo python"
+            print(H.charge_T())       
+            print("sono qua dopo python")
 
             string="transmission-test-%s-field.dat" %material;
             a=loadtxt(string);
@@ -205,8 +205,8 @@ for material in rangematerial:
                 string="%s NOT PASSED \n" %material;
             fp.write(string);
 
-            print (max(abs(H.T[:size(a[:,1])]-a[:,1])))
-	    
+            print((max(abs(H.T[:size(a[:,1])]-a[:,1]))))
+            
 #            plot(H.E,H.T);
 #            hold
 #            plot(a[:,0],a[:,1],'o');

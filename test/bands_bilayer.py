@@ -111,9 +111,9 @@ hold=h;
 #k=0;
 while (k<(kmax*0.99)):
 #while (k==0):
-    print "*********************"
-    print "Size H, type H \n"
-    print "*********************\n\n\n\n\n\n\n"
+    print("*********************")
+    print("Size H, type H \n")
+    print("*********************\n\n\n\n\n\n\n")
 
     h[18][2]=thop+thop*exp(k*delta*1j);
     h[21][2]=thop+thop*exp(-k*delta*1j);
@@ -122,7 +122,7 @@ while (k<(kmax*0.99)):
     h[30][2]=thop+thop*exp(k*delta*1j);
     h[32][2]=thop+thop*exp(-k*delta*1j);
 
-    print h-hold
+    print(h-hold)
 
 
 #H = Hamiltonian(atoms, slices)
@@ -145,12 +145,12 @@ while (k<(kmax*0.99)):
     hold=h
 
     H.charge_T()
-    print H.E
+    print(H.E)
 
     Z[:,i]=H.T[0:Ne];
-    print i
+    print(i)
     i=i+1;
-    print k
+    print(k)
     k=k+dk
 
 #    plot(H.E,H.T)

@@ -84,7 +84,7 @@ while (k<(kmax*0.99)):
     H.charge_T()
     
     Z[:,i]=H.T;
-    print i
+    print(i)
     i=i+1;
     k=k+dk
 
@@ -188,7 +188,7 @@ while (k<(kmax*0.99)):
     H.charge_T()
 
     Z[:,i]=H.T;
-    print i
+    print(i)
     i=i+1;
     k=k+dk
 
@@ -201,7 +201,7 @@ while (k<(kmax*0.99)):
 #           origin='lower', extent=[kmin,kmax,Emin,Emax])
 #show()
 
-print T
+print(T)
 T=sum(Z,1)*2*dk/(2*pi)*1e3;
 plot(H.E,T);
 G=loadtxt("g.dat");

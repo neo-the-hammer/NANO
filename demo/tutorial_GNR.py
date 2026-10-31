@@ -9,4 +9,4 @@ GNR.mu2 = -0.3;
 GNR.charge_T()
 plot(GNR.E, GNR.T);
 show()
-print GNR.current();
+print(GNR.current());

@@ -38,4 +38,4 @@ savetxt("Phi.out", p.Phi);
 temp = p.free_charge / grid.dVe / 1e-27;
 #section("x", temp, 0, grid);
 section("x", p.Phi, 0, grid);
-print CNT.current()
+print(CNT.current())

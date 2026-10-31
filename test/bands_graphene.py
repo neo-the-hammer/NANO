@@ -68,7 +68,7 @@ while (k<(kmax*0.99)):
     H.dE=1e-2;
     H.charge_T()
     Z[:,i]=H.T[0:Ne];
-    print i
+    print(i)
     i=i+1;
     k=k+dk
     

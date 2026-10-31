@@ -78,7 +78,7 @@ for material in materialrange:
 
             H = Zincblend(material, S, Or, D, L)
 
-            print H.sqci, H.tilt, H.edge, H.zmax
+            print(H.sqci, H.tilt, H.edge, H.zmax)
 
 
             deltaE = 0.1
@@ -91,12 +91,12 @@ for material in materialrange:
             n = H.n
             Nc = H.Nc
 
-            print H.n, H.Nc, n, Nc
+            print(H.n, H.Nc, n, Nc)
 
 
-            print (H.Nc_aux*H.n_aux)*((H.Nc_aux*H.n_aux+1)/2)*(2+100)
+            print((H.Nc_aux*H.n_aux)*((H.Nc_aux*H.n_aux+1)/2)*(2+100))
 
-            print H.max[0]
+            print(H.max[0])
 
 
             H.mu1 = V
@@ -109,7 +109,7 @@ for material in materialrange:
 
             effF = round((2*V)/(length-2*H.z[4*n]),3)
 
-            print effF
+            print(effF)
 
             for i in range (4):
                 for j in range(n):
@@ -144,7 +144,7 @@ for material in materialrange:
                 string="%s NOT PASSED \n" %material;
             fp.write(string);
 
-            print (max(abs(H.T[:size(a[:,1])]-a[:,1])))
+            print((max(abs(H.T[:size(a[:,1])]-a[:,1]))))
 
 #            plot(H.E,H.T);
 #            hold

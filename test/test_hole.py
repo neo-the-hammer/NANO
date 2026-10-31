@@ -36,7 +36,7 @@ H_old.Elower=-1.5;
 H_old.dE=0.1;
 H_old.charge_T()
 
-print x,y,z
+print(x,y,z)
 
 #plot(H.E,H.T)
 #hold

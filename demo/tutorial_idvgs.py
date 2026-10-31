@@ -57,7 +57,7 @@ while (Vgs <= Vgmax):
     if (Vgs == Vgmin):
         # I compute the initial solution
         p.normpoisson = 1e-3;
-        print "Computing the initial solution"
+        print("Computing the initial solution")
         solve_init(grid, p, CNT);
 
     p.normpoisson = 1e-1;
