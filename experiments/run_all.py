@@ -289,15 +289,18 @@ def main(argv=None, experiments=None, needs_module=None, results_dir=None,
                 s.est_at_start = s.est
                 t0 = time.time()
                 ok = True
+                beat = heartbeat(log, i, len(steps), s)
                 try:
                     rec = s.fn()
                 except KeyboardInterrupt:
+                    beat.set()
                     log("   interrupted -- analysing what has finished")
                     interrupted = True
                     break
                 except Exception as ex:  # keep going: one failure must not lose the rest
                     ok = False
                     rec = {"error": "%s: %s" % (type(ex).__name__, str(ex)[-1500:])}
+                beat.set()
                 s.actual = time.time() - t0
                 rec["label"] = s.label
                 rec["_t"] = s.actual
@@ -359,6 +362,23 @@ def device_figures(e, recs, plt):
     for name, g in list(render_saved.collect(recs).items())[:30]:
         figs.extend(device.render(g, "%s %s" % (e.ID, name), plt))
     return figs
+
+
+def heartbeat(log, i, n, step, every=120.0):
+    """A long step prints nothing until it finishes; print a line every two
+    minutes so a slow step is not mistaken for a hung one.  Returns the
+    event that stops it."""
+    import threading
+    stop = threading.Event()
+    t0 = time.time()
+
+    def run():
+        while not stop.wait(every):
+            log("   [%2d/%2d] %s ... still running, %s so far (estimate %s)"
+                % (i + 1, n, step.label[:40], C.fmt_t(time.time() - t0).strip(),
+                   C.fmt_t(step.est_at_start).strip()))
+    threading.Thread(target=run, daemon=True).start()
+    return stop
 
 
 def close_empty_figures():
