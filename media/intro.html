@@ -1,0 +1,245 @@
+<title>ViDES on the GPU</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one 16:9 stage, centred; captions in the lower third; a quiet control strip under it. */
+:root {
+  --ink: #0e1726;        /* deep lab-blue ground */
+  --ink-2: #16233a;
+  --line: #2a3a55;
+  --paper: #e9eef6;      /* text */
+  --mute: #8a9ab3;
+  --cpu: #4f93e6;        /* the suite's CPU blue */
+  --gpu: #f07a43;        /* the suite's GPU orange */
+  --ok: #5cc28c;
+  --display: "Manrope", "Segoe UI", system-ui, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  color-scheme: dark;
+}
+html, body { height: 100%; }
+body {
+  margin: 0; background: var(--ink); color: var(--paper); font-family: var(--display);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px; box-sizing: border-box;
+}
+.stage { position: relative; width: min(100%, 1280px); aspect-ratio: 16 / 9; max-width: 100%;
+  background: radial-gradient(120% 90% at 70% 30%, var(--ink-2), var(--ink)); overflow: hidden; border-radius: 6px; }
+canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.controls { display: flex; gap: 10px; align-items: center; width: min(100%, 1280px); font-family: var(--mono);
+  font-size: 12px; color: var(--mute); }
+button { background: transparent; color: var(--paper); border: 1px solid var(--line); border-radius: 4px;
+  font: 600 12px var(--mono); padding: 6px 12px; cursor: pointer; }
+button:hover { border-color: var(--mute); }
+button:focus-visible { outline: 2px solid var(--gpu); outline-offset: 2px; }
+.bar { flex: 1; height: 3px; background: var(--line); border-radius: 2px; overflow: hidden; min-width: 40px; }
+.bar i { display: block; height: 100%; width: 0; background: var(--gpu); }
+body.rec .controls { display: none; }
+body.rec { padding: 0; }
+body.rec .stage { width: 100vw; border-radius: 0; }
+</style>
+<div class="stage"><canvas id="c" aria-label="Animated introduction to the GPU-accelerated NanoTCAD ViDES"></canvas></div>
+<div class="controls">
+  <button id="play" type="button">Pause</button>
+  <button id="again" type="button">Replay</button>
+  <div class="bar"><i id="prog"></i></div>
+  <span id="clock">0.0 s</span>
+</div>
+<script>
+(() => {
+  const DUR = 26;                        // seconds per loop
+  const C = { ink: "#0e1726", line: "#2a3a55", paper: "#e9eef6", mute: "#8a9ab3", cpu: "#4f93e6", gpu: "#f07a43", ok: "#5cc28c" };
+  const cv = document.getElementById("c"), cx = cv.getContext("2d");
+  if (location.hash === "#record") document.body.classList.add("rec");
+  const reduce = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  let W = 0, H = 0, S = 1;
+  function size() {
+    const r = cv.getBoundingClientRect(), d = devicePixelRatio || 1;
+    cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d);
+    cx.setTransform(d, 0, 0, d, 0, 0); W = r.width; H = r.height; S = W / 1280;
+  }
+  addEventListener("resize", size); size();
+
+  const clamp = (x, a = 0, b = 1) => Math.max(a, Math.min(b, x));
+  const ease = x => { x = clamp(x); return x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2; };
+  const seg = (t, a, b) => clamp((t - a) / (b - a));
+  const fade = (t, a, b, f = .6) => Math.min(ease(seg(t, a, a + f)), 1 - ease(seg(t, b - f, b)));
+  const font = (px, w = 600, fam = "display") =>
+    `${w} ${px * S}px ${fam === "mono" ? '"JetBrains Mono", ui-monospace, monospace' : 'Manrope, "Segoe UI", system-ui, sans-serif'}`;
+  function text(s, x, y, px, col, a = 1, w = 600, fam, align = "left") {
+    cx.globalAlpha = a; cx.fillStyle = col; cx.font = font(px, w, fam); cx.textAlign = align; cx.textBaseline = "alphabetic";
+    cx.fillText(s, x * S, y * S); cx.globalAlpha = 1;
+  }
+
+  // honeycomb ribbon: armchair rows, coordinates in stage units
+  const atoms = [], bonds = [];
+  (() => {
+    const a = 22, rows = 7, cols = 26, x0 = 640 - (cols - 1) * a * 1.125 / 2, y0 = 300 - rows * a * 0.43;
+    const id = (i, j) => i * rows + j;
+    for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+      atoms.push({ x: x0 + i * a * 1.125, y: y0 + j * a * 0.866 + (i % 2) * a * 0.433, i, j });
+    }
+    for (let i = 0; i < cols; i++) for (let j = 0; j < rows; j++) {
+      if (j < rows - 1) bonds.push([id(i, j), id(i, j + 1)]);
+      if (i < cols - 1 && (i + j) % 2 === 0) bonds.push([id(i, j), id(i + 1, j)]);
+    }
+  })();
+
+  function lattice(t, alpha, glow) {
+    const n = atoms.length;
+    cx.lineWidth = 1.4 * S;
+    for (const [p, q] of bonds) {
+      const A = atoms[p], B = atoms[q], k = ease(seg(t * 1.6 - A.i / 40, 0, 1));
+      if (k <= 0) continue;
+      cx.strokeStyle = "#4a5f82"; cx.globalAlpha = alpha * k;
+      cx.beginPath(); cx.moveTo(A.x * S, A.y * S); cx.lineTo((A.x + (B.x - A.x) * k) * S, (A.y + (B.y - A.y) * k) * S); cx.stroke();
+    }
+    for (let k = 0; k < n; k++) {
+      const A = atoms[k], s = ease(seg(t * 1.6 - A.i / 40, 0, 1));
+      if (s <= 0) continue;
+      const g = glow ? glow(A) : 0;
+      cx.globalAlpha = alpha * s;
+      cx.fillStyle = g > 0 ? mix(C.cpu, C.gpu, g) : "#6f82a3";
+      cx.beginPath(); cx.arc(A.x * S, A.y * S, (2.4 + 2.2 * g) * S, 0, 7); cx.fill();
+    }
+    cx.globalAlpha = 1;
+  }
+  function mix(a, b, k) {
+    const h = s => [1, 3, 5].map(i => parseInt(s.slice(i, i + 2), 16));
+    const A = h(a), B = h(b);
+    return "rgb(" + A.map((v, i) => Math.round(v + (B[i] - v) * clamp(k))).join(",") + ")";
+  }
+
+  // transmission T(E) of a ribbon: integer plateaus, smoothed edges
+  const Tof = E => { let v = 1; for (const e of [0.55, 0.9, 1.35]) v += 2 / (1 + Math.exp(-(Math.abs(E) - e) * 40)); return v; };
+
+  function scene1(t) {                     // 0-5: title over the lattice
+    const a = fade(t, 0, 5.4);
+    lattice(t, 0.55 * a);
+    text("NanoTCAD ViDES", 88, 560, 64, C.paper, a * ease(seg(t, .4, 1.4)), 800);
+    text("quantum transport in nanoscale devices, on the GPU", 90, 604, 24, C.mute, a * ease(seg(t, .9, 1.9)), 400);
+    text("NEGF  ·  CUDA  ·  CPU + GPU concurrent", 90, 646, 15, C.gpu, a * ease(seg(t, 1.4, 2.4)), 600, "mono");
+  }
+
+  function scene2(t) {                     // 5-11: one solve per energy
+    const u = t - 5, a = fade(u, 0, 6);
+    if (a <= 0) return;
+    const sweep = ease(seg(u, .8, 4.6));
+    const Ecur = -1.6 + 3.2 * sweep;
+    lattice(9, 0.5 * a, A => Math.max(0, 1 - Math.abs((A.i / 25) - sweep) * 6) * 0.9);
+    // energy axis on the left
+    const x0 = 120, y0 = 140, h = 360;
+    cx.globalAlpha = a; cx.strokeStyle = C.line; cx.lineWidth = 1 * S;
+    for (let k = 0; k <= 60; k++) { const y = y0 + h * k / 60; cx.beginPath(); cx.moveTo(x0 * S, y * S); cx.lineTo((x0 + (k % 10 ? 8 : 16)) * S, y * S); cx.stroke(); }
+    const yE = y0 + h * (1 - (Ecur + 1.6) / 3.2);
+    cx.fillStyle = C.gpu; cx.beginPath(); cx.arc((x0 + 26) * S, yE * S, 5 * S, 0, 7); cx.fill();
+    text("E = " + Ecur.toFixed(2) + " eV", x0 + 38, yE + 5, 14, C.paper, a, 600, "mono");
+    // T(E) curve on the right, drawn up to the current energy
+    const gx = 1010, gw = 200;
+    cx.strokeStyle = C.cpu; cx.lineWidth = 2.2 * S; cx.beginPath();
+    for (let k = 0; k <= 200; k++) {
+      const E = -1.6 + 3.2 * k / 200; if (E > Ecur) break;
+      const X = gx + gw * Tof(E) / 7.5, Y = y0 + h * (1 - (E + 1.6) / 3.2);
+      k ? cx.lineTo(X * S, Y * S) : cx.moveTo(X * S, Y * S);
+    }
+    cx.stroke(); cx.globalAlpha = 1;
+    text("T(E)", gx, y0 - 14, 14, C.mute, a, 600, "mono");
+    text("One Green's function per energy point.", 88, 600, 30, C.paper, a * ease(seg(u, .3, 1.2)), 800);
+    text("600 energies  ×  every bias  ×  every self-consistent iteration", 90, 640, 16, C.mute, a * ease(seg(u, 1, 2)), 400, "mono");
+  }
+
+  function scene3(t) {                     // 11-17: batched on the GPU, CPU threads alongside
+    const u = t - 11, a = fade(u, 0, 6);
+    if (a <= 0) return;
+    const lanes = [{ y: 220, name: "GPU   batched RGF (cuBLAS)", col: C.gpu }, { y: 330, name: "CPU   self-energies, next chunk", col: C.cpu }];
+    const x0 = 260, x1 = 1160;
+    for (const L of lanes) {
+      text(L.name, x0, L.y - 18, 14, C.mute, a, 600, "mono");
+      cx.globalAlpha = a * .35; cx.fillStyle = C.line; cx.fillRect(x0 * S, (L.y - 6) * S, (x1 - x0) * S, 30 * S); cx.globalAlpha = 1;
+    }
+    const chunk = 160, gap = 14, n = 5;
+    for (let k = 0; k < n; k++) {
+      const g0 = x0 + (k + 1) * (chunk + gap) - chunk * 0.15, c0 = x0 + k * (chunk + gap);
+      const pg = ease(seg(u, .6 + k * .7, 1.3 + k * .7)), pc = ease(seg(u, .25 + k * .7, .95 + k * .7));
+      if (k < n - 1) { cx.globalAlpha = a; cx.fillStyle = C.cpu; cx.fillRect(c0 * S, (330 - 6) * S, chunk * pc * S, 30 * S); }
+      if (k > 0) { cx.globalAlpha = a; cx.fillStyle = C.gpu; cx.fillRect((g0 - chunk) * S, (220 - 6) * S, chunk * pg * S, 30 * S); }
+      if (k > 0 && pg > 0) text("chunk " + k, g0 - chunk + 10, 233, 12, C.ink, a * pg, 600, "mono");
+    }
+    cx.globalAlpha = 1;
+    // energy dots streaming into the GPU lane
+    for (let k = 0; k < 90; k++) {
+      const ph = (u * .45 + k / 90) % 1, x = 90 + ph * 150, y = 190 + (k * 37 % 190);
+      cx.globalAlpha = a * (1 - ph) * .8; cx.fillStyle = C.paper; cx.beginPath(); cx.arc(x * S, y * S, 1.6 * S, 0, 7); cx.fill();
+    }
+    cx.globalAlpha = 1;
+    text("Batched over energies, pipelined with the CPU.", 88, 520, 30, C.paper, a * ease(seg(u, .3, 1.2)), 800);
+    text("The GPU solves one chunk while the CPU threads build the contact self-energies of the next;", 90, 562, 16, C.mute, a * ease(seg(u, 1, 2)), 400);
+    text("an adaptive split also gives the CPU a share of each batch.", 90, 588, 16, C.mute, a * ease(seg(u, 1, 2)), 400);
+  }
+
+  function scene4(t) {                     // 17-22: measured speedups (Tesla T4)
+    const u = t - 17, a = fade(u, 0, 5);
+    if (a <= 0) return;
+    const rows = [["NEGF solver, n = 32", 41.8], ["CNT FET, 19 × 10", 12.2], ["Graphene nanoribbon, 12 × 10", 10.1], ["Graphene FET I–V, 1617 solves", 5.8]];
+    const x0 = 520, wmax = 640;
+    rows.forEach(([lab, v], k) => {
+      const y = 150 + k * 82, p = ease(seg(u, .4 + k * .25, 1.6 + k * .25));
+      text(lab, 90, y + 22, 18, C.paper, a, 600);
+      cx.globalAlpha = a; cx.fillStyle = C.line; cx.fillRect(x0 * S, y * S, wmax * S, 30 * S);
+      cx.fillStyle = C.gpu; cx.fillRect(x0 * S, y * S, wmax * (v / 42) * p * S, 30 * S); cx.globalAlpha = 1;
+      text((v * p).toFixed(1) + "×", x0 + 12 + wmax * (v / 42) * p, y + 22, 18, C.paper, a * p, 800, "mono");
+    });
+    text("Measured on a Tesla T4 (FP64 at 1/32 rate), against the CPU path.", 90, 520, 18, C.mute, a, 400);
+    text("Faster.", 88, 600, 44, C.paper, a * ease(seg(u, .2, 1)), 800);
+  }
+
+  function scene5(t) {                     // 22-26: same answers
+    const u = t - 22, a = fade(u, 0, 4.2, .5);
+    if (a <= 0) return;
+    const gx = 120, gy = 130, gw = 560, gh = 300;
+    cx.globalAlpha = a; cx.strokeStyle = C.line; cx.lineWidth = 1 * S; cx.strokeRect(gx * S, gy * S, gw * S, gh * S);
+    const draw = (col, w, dash, p) => {
+      cx.strokeStyle = col; cx.lineWidth = w * S; cx.setLineDash(dash.map(d => d * S)); cx.beginPath();
+      for (let k = 0; k <= 300 * p; k++) {
+        const E = -1.6 + 3.2 * k / 300, X = gx + gw * k / 300, Y = gy + gh * (1 - Tof(E) / 7.6);
+        k ? cx.lineTo(X * S, Y * S) : cx.moveTo(X * S, Y * S);
+      }
+      cx.stroke(); cx.setLineDash([]);
+    };
+    draw(C.cpu, 3.2, [], ease(seg(u, .2, 1.6)));
+    draw(C.gpu, 1.6, [8, 6], ease(seg(u, .6, 2)));
+    cx.globalAlpha = 1;
+    text("CPU", gx + gw + 18, gy + 30, 14, C.cpu, a, 600, "mono");
+    text("GPU", gx + gw + 18, gy + 54, 14, C.gpu, a, 600, "mono");
+    text("Same answers.", 760, 220, 44, C.paper, a * ease(seg(u, .4, 1.2)), 800);
+    text("solver   CPU vs GPU  ≤ 1e-12", 762, 280, 16, C.ok, a * ease(seg(u, .8, 1.6)), 600, "mono");
+    text("threads  vs serial   = 0 (bit-identical)", 762, 308, 16, C.ok, a * ease(seg(u, 1, 1.8)), 600, "mono");
+    text("tutorials, regression data, physics laws: pass", 762, 336, 16, C.ok, a * ease(seg(u, 1.2, 2)), 600, "mono");
+    text("github.com/neo-the-hammer/NANO", 90, 620, 18, C.mute, a * ease(seg(u, 1.4, 2.2)), 600, "mono");
+  }
+
+  function frame(t) {
+    cx.clearRect(0, 0, W, H);
+    scene1(t); scene2(t); scene3(t); scene4(t); scene5(t);
+  }
+
+  let start = performance.now(), paused = false, held = 0;
+  const play = document.getElementById("play"), prog = document.getElementById("prog"), clock = document.getElementById("clock");
+  function now() { return paused ? held : ((performance.now() - start) / 1000) % DUR; }
+  function loop() {
+    const t = reduce ? 24.5 : now();
+    frame(t);
+    prog.style.width = (100 * t / DUR) + "%";
+    clock.textContent = t.toFixed(1) + " s";
+    requestAnimationFrame(loop);
+  }
+  play.addEventListener("click", () => {
+    if (paused) { start = performance.now() - held * 1000; paused = false; play.textContent = "Pause"; }
+    else { held = now(); paused = true; play.textContent = "Play"; }
+  });
+  document.getElementById("again").addEventListener("click", () => { start = performance.now(); paused = false; play.textContent = "Pause"; });
+  window.__introDuration = DUR;
+  requestAnimationFrame(loop);
+})();
+</script>
